@@ -138,8 +138,6 @@ impl MainApp {
 
                 self.state = AppState::Overlay(OverlayApp::new(captured));
 
-                activate_app();
-
                 // Ensure window joins current space (e.g. Fullscreen apps like Antigravity)
                 if let Some(mtm) = MainThreadMarker::new() {
                     let app = NSApp(mtm);
@@ -151,6 +149,8 @@ impl MainApp {
                         );
                     }
                 }
+
+                activate_app();
 
                 ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));

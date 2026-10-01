@@ -303,7 +303,8 @@ impl eframe::App for OverlayApp {
             } else {
                 Pos2::new(sel.min.x + 8.0, sel.min.y + 8.0)
             };
-            let pill_rect = Rect::from_min_size(pill_pos, Vec2::new(105.0, 20.0));
+            let pill_w = (dim_text.len() as f32 * 7.5 + 16.0).max(95.0);
+            let pill_rect = Rect::from_min_size(pill_pos, Vec2::new(pill_w, 22.0));
             painter.rect_filled(pill_rect, 4.0, Color32::from_black_alpha(190));
             painter.text(
                 pill_rect.center(),
@@ -547,19 +548,18 @@ impl eframe::App for OverlayApp {
 
         // 10. Mouse Interaction Logic (Selecting, Moving, Resizing, Drawing)
         if pointer_down {
-            if self.selection.is_none() {
-                // Initial selection drag
-                if !self.is_dragging_new {
-                    self.is_dragging_new = true;
-                    self.drag_start = Some(mouse_pos);
-                }
+            if self.is_dragging_new {
+                // Actively dragging out a new selection!
                 if let Some(start) = self.drag_start {
-                    if (mouse_pos - start).length() > 4.0 {
-                        self.selection = Some(Rect::from_two_pos(start, mouse_pos));
-                    }
+                    self.selection = Some(Rect::from_two_pos(start, mouse_pos));
                 }
+            } else if self.selection.is_none() {
+                // Initial selection drag start
+                self.is_dragging_new = true;
+                self.drag_start = Some(mouse_pos);
+                self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
             } else if let Some(sel) = norm_sel {
-                // Check if clicking resize handles
+                // Check if clicking resize handles or inside selection
                 if self.annotations.active_tool == Tool::Select {
                     if self.active_handle.is_none() && !self.is_moving_selection {
                         for (pos, h_rect) in self.get_handle_rects(sel) {
@@ -572,6 +572,12 @@ impl eframe::App for OverlayApp {
                             self.is_moving_selection = true;
                             self.move_drag_start = Some(mouse_pos);
                             self.selection_start_rect = Some(sel);
+                        } else if self.active_handle.is_none() && !sel.contains(mouse_pos) {
+                            // Clicked outside existing selection: start dragging a brand new selection!
+                            self.is_dragging_new = true;
+                            self.drag_start = Some(mouse_pos);
+                            self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
+                            self.annotations.items.clear();
                         }
                     }
 
@@ -613,8 +619,8 @@ impl eframe::App for OverlayApp {
         if pointer_released {
             if self.is_dragging_new {
                 if let Some(sel) = self.normalized_selection() {
-                    // Check if it was a click or an extremely small drag (< 8x8 px)
-                    if sel.width() < 8.0 || sel.height() < 8.0 {
+                    // Check if it was just a tiny click (< 6px wide and tall)
+                    if sel.width() < 6.0 && sel.height() < 6.0 {
                         // Check if a window was clicked
                         let clicked_win = self.captured.windows.iter().find(|w| {
                             let wx = w.x as f32 / scale_x;
@@ -631,26 +637,9 @@ impl eframe::App for OverlayApp {
                             let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
                             self.selection = Some(Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh)));
                         } else {
-                            // Clicking on empty area clears selection so it doesn't get stuck on 0x0
+                            // Clicking on empty area clears selection
                             self.selection = None;
                         }
-                    }
-                } else {
-                    // Selection wasn't started yet because drag < 4.0 px (pure click)
-                    let clicked_win = self.captured.windows.iter().find(|w| {
-                        let wx = w.x as f32 / scale_x;
-                        let wy = w.y as f32 / scale_y;
-                        let ww = w.width as f32 / scale_x;
-                        let wh = w.height as f32 / scale_y;
-                        let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
-                        r.contains(mouse_pos)
-                    });
-                    if let Some(w) = clicked_win {
-                        let wx = (w.x as f32 / scale_x).clamp(0.0, screen_size.x);
-                        let wy = (w.y as f32 / scale_y).clamp(0.0, screen_size.y);
-                        let ww = (w.width as f32 / scale_x).min(screen_size.x - wx);
-                        let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
-                        self.selection = Some(Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh)));
                     }
                 }
             }
