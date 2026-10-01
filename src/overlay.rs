@@ -181,7 +181,12 @@ impl eframe::App for OverlayApp {
 
         // 3. Handle Keyboard Shortcuts & Mouse Cancel
         if ctx.input(|i| i.key_pressed(Key::Escape) || i.pointer.secondary_clicked()) {
-            if self.selection.is_some() {
+            if self.annotations.active_text_pos.is_some() {
+                self.annotations.active_text_pos = None;
+                self.annotations.active_text_buffer.clear();
+            } else if self.annotations.active_tool != Tool::Select {
+                self.annotations.active_tool = Tool::Select;
+            } else if self.selection.is_some() {
                 self.selection = None;
                 self.annotations.items.clear();
             } else {
@@ -220,15 +225,17 @@ impl eframe::App for OverlayApp {
         }
 
         // Tool shortcuts
-        if ctx.input(|i| i.key_pressed(Key::V)) { self.annotations.active_tool = Tool::Select; }
-        if ctx.input(|i| i.key_pressed(Key::R)) { self.annotations.active_tool = Tool::Rectangle; }
-        if ctx.input(|i| i.key_pressed(Key::O)) { self.annotations.active_tool = Tool::Ellipse; }
-        if ctx.input(|i| i.key_pressed(Key::A)) { self.annotations.active_tool = Tool::Arrow; }
-        if ctx.input(|i| i.key_pressed(Key::P)) { self.annotations.active_tool = Tool::Pen; }
-        if ctx.input(|i| i.key_pressed(Key::N)) { self.annotations.active_tool = Tool::Step; }
-        if ctx.input(|i| i.key_pressed(Key::T)) { self.annotations.active_tool = Tool::Text; }
-        if ctx.input(|i| i.key_pressed(Key::B)) { self.annotations.active_tool = Tool::Mosaic; }
-        if ctx.input(|i| i.key_pressed(Key::H)) { self.annotations.active_tool = Tool::Highlighter; }
+        if self.annotations.active_text_pos.is_none() {
+            if ctx.input(|i| i.key_pressed(Key::V)) { self.annotations.active_tool = Tool::Select; }
+            if ctx.input(|i| i.key_pressed(Key::R)) { self.annotations.active_tool = Tool::Rectangle; }
+            if ctx.input(|i| i.key_pressed(Key::O)) { self.annotations.active_tool = Tool::Ellipse; }
+            if ctx.input(|i| i.key_pressed(Key::A)) { self.annotations.active_tool = Tool::Arrow; }
+            if ctx.input(|i| i.key_pressed(Key::P)) { self.annotations.active_tool = Tool::Pen; }
+            if ctx.input(|i| i.key_pressed(Key::N)) { self.annotations.active_tool = Tool::Step; }
+            if ctx.input(|i| i.key_pressed(Key::T)) { self.annotations.active_tool = Tool::Text; }
+            if ctx.input(|i| i.key_pressed(Key::B)) { self.annotations.active_tool = Tool::Mosaic; }
+            if ctx.input(|i| i.key_pressed(Key::H)) { self.annotations.active_tool = Tool::Highlighter; }
+        }
 
         let mouse_pos = ctx.input(|i| i.pointer.hover_pos()).unwrap_or(Pos2::ZERO);
         let pointer_down = ctx.input(|i| i.pointer.primary_down());
@@ -264,9 +271,13 @@ impl eframe::App for OverlayApp {
 
             // 6. Draw In-Progress Drawing
             if let Some(start) = self.drawing_start {
+                let draw_pos = Pos2::new(
+                    mouse_pos.x.clamp(sel.min.x, sel.max.x),
+                    mouse_pos.y.clamp(sel.min.y, sel.max.y),
+                );
                 match self.annotations.active_tool {
                     Tool::Rectangle => {
-                        let cur_rect = Rect::from_two_pos(start, mouse_pos);
+                        let cur_rect = Rect::from_two_pos(start, draw_pos);
                         let item = AnnotationItem::Rectangle {
                             rect: cur_rect,
                             stroke_color: self.annotations.stroke_color,
@@ -276,7 +287,7 @@ impl eframe::App for OverlayApp {
                         AnnotationState::paint_item(&painter, &item);
                     }
                     Tool::Ellipse => {
-                        let cur_rect = Rect::from_two_pos(start, mouse_pos);
+                        let cur_rect = Rect::from_two_pos(start, draw_pos);
                         let item = AnnotationItem::Ellipse {
                             rect: cur_rect,
                             stroke_color: self.annotations.stroke_color,
@@ -288,14 +299,14 @@ impl eframe::App for OverlayApp {
                     Tool::Arrow => {
                         let item = AnnotationItem::Arrow {
                             start,
-                            end: mouse_pos,
+                            end: draw_pos,
                             color: self.annotations.stroke_color,
                             width: self.annotations.stroke_width,
                         };
                         AnnotationState::paint_item(&painter, &item);
                     }
                     Tool::Mosaic => {
-                        let m_rect = Rect::from_two_pos(start, mouse_pos);
+                        let m_rect = Rect::from_two_pos(start, draw_pos);
                         let blocks = AnnotationState::generate_mosaic_blocks(m_rect, &self.captured.image, scale_x, scale_y);
                         let item = AnnotationItem::Mosaic { rect: m_rect, blocks };
                         AnnotationState::paint_item(&painter, &item);
@@ -412,6 +423,7 @@ impl eframe::App for OverlayApp {
         }
 
         // 9. Floating Toolbar (Rendered above or below selection)
+        let mut toolbar_rect: Option<Rect> = None;
         if let Some(sel) = norm_sel {
             let toolbar_width = 850.0;
             let toolbar_height = 44.0;
@@ -427,6 +439,7 @@ impl eframe::App for OverlayApp {
             tb_y = tb_y.clamp(10.0, screen_size.y - toolbar_height - 10.0);
 
             let tb_rect = Rect::from_min_size(Pos2::new(tb_x, tb_y), Vec2::new(toolbar_width, toolbar_height));
+            toolbar_rect = Some(tb_rect);
 
             // Modern frosted-glass toolbar panel
             painter.rect_filled(tb_rect.translate(Vec2::new(0.0, 4.0)), 12.0, Color32::from_black_alpha(100));
@@ -642,7 +655,15 @@ impl eframe::App for OverlayApp {
         }
 
         // Dynamic Cursor feedback
-        if let Some(sel) = norm_sel {
+        let pointer_on_toolbar = if let Some(tb) = toolbar_rect {
+            tb.expand(8.0).contains(mouse_pos)
+        } else {
+            false
+        };
+
+        if pointer_on_toolbar {
+            ctx.set_cursor_icon(CursorIcon::Default);
+        } else if let Some(sel) = norm_sel {
             if self.annotations.active_tool == Tool::Select {
                 let mut handle_hovered = false;
                 for (pos, h_rect) in self.get_handle_rects(sel) {
@@ -658,7 +679,7 @@ impl eframe::App for OverlayApp {
                     } else if sel.contains(mouse_pos) {
                         ctx.set_cursor_icon(CursorIcon::Grab);
                     } else {
-                        ctx.set_cursor_icon(CursorIcon::Default);
+                        ctx.set_cursor_icon(CursorIcon::Crosshair);
                     }
                 }
             } else {
@@ -675,63 +696,83 @@ impl eframe::App for OverlayApp {
                 if let Some(start) = self.drag_start {
                     self.selection = Some(Rect::from_two_pos(start, mouse_pos));
                 }
-            } else if self.selection.is_none() {
-                // Initial selection drag start
-                self.is_dragging_new = true;
-                self.drag_start = Some(mouse_pos);
-                self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
-            } else if let Some(sel) = norm_sel {
-                // Check if clicking resize handles or inside selection
-                if self.annotations.active_tool == Tool::Select {
-                    if self.active_handle.is_none() && !self.is_moving_selection {
+            } else if self.is_moving_selection {
+                // Actively moving selection
+                if let (Some(start_m), Some(orig_sel)) = (self.move_drag_start, self.selection_start_rect) {
+                    let delta = mouse_pos - start_m;
+                    self.selection = Some(orig_sel.translate(delta));
+                }
+            } else if let Some(handle) = self.active_handle {
+                // Actively resizing selection via handles
+                if let Some(sel) = norm_sel {
+                    let mut new_sel = sel;
+                    match handle {
+                        HandlePosition::TopLeft => { new_sel.min = mouse_pos; }
+                        HandlePosition::Top => { new_sel.min.y = mouse_pos.y; }
+                        HandlePosition::TopRight => { new_sel.max.x = mouse_pos.x; new_sel.min.y = mouse_pos.y; }
+                        HandlePosition::Right => { new_sel.max.x = mouse_pos.x; }
+                        HandlePosition::BottomRight => { new_sel.max = mouse_pos; }
+                        HandlePosition::Bottom => { new_sel.max.y = mouse_pos.y; }
+                        HandlePosition::BottomLeft => { new_sel.min.x = mouse_pos.x; new_sel.max.y = mouse_pos.y; }
+                        HandlePosition::Left => { new_sel.min.x = mouse_pos.x; }
+                    }
+                    self.selection = Some(new_sel);
+                }
+            } else if self.drawing_start.is_some() {
+                // Actively drawing pen / highlighter points
+                if let Some(sel) = norm_sel {
+                    let clamped = Pos2::new(
+                        mouse_pos.x.clamp(sel.min.x, sel.max.x),
+                        mouse_pos.y.clamp(sel.min.y, sel.max.y),
+                    );
+                    if self.annotations.active_tool == Tool::Pen || self.annotations.active_tool == Tool::Highlighter {
+                        self.pen_points.push(clamped);
+                    }
+                }
+            } else if !pointer_on_toolbar {
+                // Initial click down on canvas (NOT on toolbar)
+                if self.selection.is_none() {
+                    // Start dragging initial selection
+                    self.is_dragging_new = true;
+                    self.drag_start = Some(mouse_pos);
+                    self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
+                } else if let Some(sel) = norm_sel {
+                    if self.annotations.active_tool == Tool::Select {
+                        // Check if clicking resize handles
                         for (pos, h_rect) in self.get_handle_rects(sel) {
                             if h_rect.contains(mouse_pos) {
                                 self.active_handle = Some(pos);
                                 break;
                             }
                         }
-                        if self.active_handle.is_none() && sel.contains(mouse_pos) && self.move_drag_start.is_none() {
-                            self.is_moving_selection = true;
-                            self.move_drag_start = Some(mouse_pos);
-                            self.selection_start_rect = Some(sel);
-                        } else if self.active_handle.is_none() && !sel.contains(mouse_pos) {
-                            // Clicked outside existing selection: start dragging a brand new selection!
-                            self.is_dragging_new = true;
-                            self.drag_start = Some(mouse_pos);
-                            self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
-                            self.annotations.items.clear();
+                        if self.active_handle.is_none() {
+                            if sel.contains(mouse_pos) {
+                                // Start moving selection
+                                self.is_moving_selection = true;
+                                self.move_drag_start = Some(mouse_pos);
+                                self.selection_start_rect = Some(sel);
+                            } else {
+                                // Clicked outside existing selection in Select mode:
+                                // Start dragging a brand new selection!
+                                self.is_dragging_new = true;
+                                self.drag_start = Some(mouse_pos);
+                                self.selection = Some(Rect::from_two_pos(mouse_pos, mouse_pos));
+                                self.annotations.items.clear();
+                            }
                         }
-                    }
-
-                    // Apply handle resizing
-                    if let Some(handle) = self.active_handle {
-                        let mut new_sel = sel;
-                        match handle {
-                            HandlePosition::TopLeft => { new_sel.min = mouse_pos; }
-                            HandlePosition::Top => { new_sel.min.y = mouse_pos.y; }
-                            HandlePosition::TopRight => { new_sel.max.x = mouse_pos.x; new_sel.min.y = mouse_pos.y; }
-                            HandlePosition::Right => { new_sel.max.x = mouse_pos.x; }
-                            HandlePosition::BottomRight => { new_sel.max = mouse_pos; }
-                            HandlePosition::Bottom => { new_sel.max.y = mouse_pos.y; }
-                            HandlePosition::BottomLeft => { new_sel.min.x = mouse_pos.x; new_sel.max.y = mouse_pos.y; }
-                            HandlePosition::Left => { new_sel.min.x = mouse_pos.x; }
+                    } else {
+                        // Drawing tools (Rectangle, Ellipse, Arrow, Pen, Highlighter, Mosaic)
+                        // ONLY start drawing if clicked inside the selection!
+                        if sel.contains(mouse_pos) {
+                            let clamped = Pos2::new(
+                                mouse_pos.x.clamp(sel.min.x, sel.max.x),
+                                mouse_pos.y.clamp(sel.min.y, sel.max.y),
+                            );
+                            self.drawing_start = Some(clamped);
+                            if self.annotations.active_tool == Tool::Pen || self.annotations.active_tool == Tool::Highlighter {
+                                self.pen_points = vec![clamped];
+                            }
                         }
-                        self.selection = Some(new_sel);
-                    } else if self.is_moving_selection {
-                        if let (Some(start_m), Some(orig_sel)) = (self.move_drag_start, self.selection_start_rect) {
-                            let delta = mouse_pos - start_m;
-                            self.selection = Some(orig_sel.translate(delta));
-                        }
-                    }
-                } else {
-                    // Active annotation tool drawing
-                    if self.drawing_start.is_none() {
-                        self.drawing_start = Some(mouse_pos);
-                        if self.annotations.active_tool == Tool::Pen || self.annotations.active_tool == Tool::Highlighter {
-                            self.pen_points = vec![mouse_pos];
-                        }
-                    } else if self.annotations.active_tool == Tool::Pen || self.annotations.active_tool == Tool::Highlighter {
-                        self.pen_points.push(mouse_pos);
                     }
                 }
             }
@@ -761,78 +802,139 @@ impl eframe::App for OverlayApp {
             self.selection_start_rect = None;
 
             if let Some(start) = self.drawing_start {
-                match self.annotations.active_tool {
-                    Tool::Rectangle => {
-                        let r = Rect::from_two_pos(start, mouse_pos);
-                        if r.width() > 3.0 && r.height() > 3.0 {
-                            self.annotations.items.push(AnnotationItem::Rectangle {
-                                rect: r,
-                                stroke_color: self.annotations.stroke_color,
-                                stroke_width: self.annotations.stroke_width,
-                                fill: self.annotations.fill_shape,
-                            });
+                if let Some(sel) = norm_sel {
+                    let end_pos = Pos2::new(
+                        mouse_pos.x.clamp(sel.min.x, sel.max.x),
+                        mouse_pos.y.clamp(sel.min.y, sel.max.y),
+                    );
+                    match self.annotations.active_tool {
+                        Tool::Rectangle => {
+                            let r = Rect::from_two_pos(start, end_pos);
+                            if r.width() > 3.0 && r.height() > 3.0 {
+                                self.annotations.items.push(AnnotationItem::Rectangle {
+                                    rect: r,
+                                    stroke_color: self.annotations.stroke_color,
+                                    stroke_width: self.annotations.stroke_width,
+                                    fill: self.annotations.fill_shape,
+                                });
+                            }
                         }
-                    }
-                    Tool::Ellipse => {
-                        let r = Rect::from_two_pos(start, mouse_pos);
-                        if r.width() > 3.0 && r.height() > 3.0 {
-                            self.annotations.items.push(AnnotationItem::Ellipse {
-                                rect: r,
-                                stroke_color: self.annotations.stroke_color,
-                                stroke_width: self.annotations.stroke_width,
-                                fill: self.annotations.fill_shape,
-                            });
+                        Tool::Ellipse => {
+                            let r = Rect::from_two_pos(start, end_pos);
+                            if r.width() > 3.0 && r.height() > 3.0 {
+                                self.annotations.items.push(AnnotationItem::Ellipse {
+                                    rect: r,
+                                    stroke_color: self.annotations.stroke_color,
+                                    stroke_width: self.annotations.stroke_width,
+                                    fill: self.annotations.fill_shape,
+                                });
+                            }
                         }
-                    }
-                    Tool::Arrow => {
-                        if (mouse_pos - start).length() > 5.0 {
-                            self.annotations.items.push(AnnotationItem::Arrow {
-                                start,
-                                end: mouse_pos,
-                                color: self.annotations.stroke_color,
-                                width: self.annotations.stroke_width,
-                            });
+                        Tool::Arrow => {
+                            if (end_pos - start).length() > 5.0 {
+                                self.annotations.items.push(AnnotationItem::Arrow {
+                                    start,
+                                    end: end_pos,
+                                    color: self.annotations.stroke_color,
+                                    width: self.annotations.stroke_width,
+                                });
+                            }
                         }
-                    }
-                    Tool::Pen => {
-                        if self.pen_points.len() >= 2 {
-                            self.annotations.items.push(AnnotationItem::Pen {
-                                points: self.pen_points.clone(),
-                                color: self.annotations.stroke_color,
-                                width: self.annotations.stroke_width,
-                            });
+                        Tool::Pen => {
+                            if self.pen_points.len() >= 2 {
+                                self.annotations.items.push(AnnotationItem::Pen {
+                                    points: self.pen_points.clone(),
+                                    color: self.annotations.stroke_color,
+                                    width: self.annotations.stroke_width,
+                                });
+                            }
+                            self.pen_points.clear();
                         }
-                        self.pen_points.clear();
-                    }
-                    Tool::Highlighter => {
-                        if self.pen_points.len() >= 2 {
-                            self.annotations.items.push(AnnotationItem::Highlighter {
-                                points: self.pen_points.clone(),
-                                color: self.annotations.stroke_color,
-                                width: self.annotations.stroke_width,
-                            });
+                        Tool::Highlighter => {
+                            if self.pen_points.len() >= 2 {
+                                self.annotations.items.push(AnnotationItem::Highlighter {
+                                    points: self.pen_points.clone(),
+                                    color: self.annotations.stroke_color,
+                                    width: self.annotations.stroke_width,
+                                });
+                            }
+                            self.pen_points.clear();
                         }
-                        self.pen_points.clear();
-                    }
-                    Tool::Mosaic => {
-                        let r = Rect::from_two_pos(start, mouse_pos);
-                        if r.width() > 5.0 && r.height() > 5.0 {
-                            let blocks = AnnotationState::generate_mosaic_blocks(r, &self.captured.image, scale_x, scale_y);
-                            self.annotations.items.push(AnnotationItem::Mosaic { rect: r, blocks });
+                        Tool::Mosaic => {
+                            let r = Rect::from_two_pos(start, end_pos);
+                            if r.width() > 5.0 && r.height() > 5.0 {
+                                let blocks = AnnotationState::generate_mosaic_blocks(r, &self.captured.image, scale_x, scale_y);
+                                self.annotations.items.push(AnnotationItem::Mosaic { rect: r, blocks });
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
                 self.drawing_start = None;
             }
         }
 
         // Click on Step Tool
-        if pointer_clicked && self.annotations.active_tool == Tool::Step {
+        if pointer_clicked && !pointer_on_toolbar && self.annotations.active_tool == Tool::Step {
             if let Some(sel) = norm_sel {
                 if sel.contains(mouse_pos) {
                     self.annotations.add_step(mouse_pos);
                 }
+            }
+        }
+
+        // Click on Text Tool
+        if pointer_clicked && !pointer_on_toolbar && self.annotations.active_tool == Tool::Text {
+            if let Some(sel) = norm_sel {
+                if sel.contains(mouse_pos) {
+                    self.annotations.active_text_pos = Some(mouse_pos);
+                    self.annotations.active_text_buffer.clear();
+                }
+            }
+        }
+
+        // Active Text input area
+        if let Some(text_pos) = self.annotations.active_text_pos {
+            let mut commit_text = false;
+            let mut cancel_text = false;
+
+            egui::Area::new(egui::Id::new("floating_text_input"))
+                .fixed_pos(text_pos)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    let text_edit = egui::TextEdit::singleline(&mut self.annotations.active_text_buffer)
+                        .font(FontId::new(16.0, FontFamily::Proportional))
+                        .text_color(self.annotations.stroke_color)
+                        .hint_text("Metin girin (Enter: Kaydet)");
+                    let output = ui.add(text_edit);
+                    output.request_focus();
+                    if output.lost_focus() && ctx.input(|i| i.key_pressed(Key::Enter)) {
+                        commit_text = true;
+                    }
+                });
+
+            if ctx.input(|i| i.key_pressed(Key::Enter)) {
+                commit_text = true;
+            }
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                cancel_text = true;
+            }
+
+            if commit_text {
+                let trimmed = self.annotations.active_text_buffer.trim().to_string();
+                if !trimmed.is_empty() {
+                    self.annotations.items.push(AnnotationItem::Text {
+                        pos: text_pos,
+                        content: trimmed,
+                        color: self.annotations.stroke_color,
+                        font_size: 16.0,
+                    });
+                }
+                self.annotations.active_text_pos = None;
+                self.annotations.active_text_buffer.clear();
+            } else if cancel_text {
+                self.annotations.active_text_pos = None;
+                self.annotations.active_text_buffer.clear();
             }
         }
 
