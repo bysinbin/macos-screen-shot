@@ -88,7 +88,20 @@ Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ek
 
 ## 🚀 Çalıştırma Seçenekleri
 
-### 1. Menubar Servisi Olarak Başlatma (Tavsiye Edilen)
+### 1. .app Olarak Paketleme & Uygulamalara Yükleme
+Uygulamayı yerel bir macOS `.app` paketi olarak oluşturmak için:
+```bash
+make app
+# veya
+./scripts/bundle_app.sh
+```
+Oluşan `ScreenShot.app` dosyasını `/Applications` klasörüne taşımak için:
+```bash
+make install
+```
+Artık **Spotlight** (`⌘ + Space`) veya **Launchpad** üzerinden *"ScreenShot"* yazarak doğrudan başlatabilirsiniz!
+
+### 2. Menubar Servisi Olarak Başlatma (Terminal)
 En üst menü çubuğuna `[📷]` simgesini yerleştirir ve global kısayolları dinlemeye başlar:
 ```bash
 ./target/release/macos_screenshot
@@ -96,19 +109,19 @@ En üst menü çubuğuna `[📷]` simgesini yerleştirir ve global kısayolları
 cargo run --release
 ```
 
-### 2. Doğrudan Ayarlar Penceresini Açma
+### 3. Doğrudan Ayarlar Penceresini Açma
 Kısayolları ve klasör tercihlerini yapılandırmak için:
 ```bash
 cargo run --release -- --settings
 ```
 
-### 3. Doğrudan Ekran Alıntısı Modunu Başlatma
+### 4. Doğrudan Ekran Alıntısı Modunu Başlatma
 Menubar beklemeden anında ekran görüntüsü almak için:
 ```bash
 cargo run --release -- --capture
 ```
 
-### 4. Bir Görseli Masaüstüne Sabitleme (Pin)
+### 5. Bir Görseli Masaüstüne Sabitleme (Pin)
 ```bash
 cargo run --release -- --pin /path/to/image.png
 ```

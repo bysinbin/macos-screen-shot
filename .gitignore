@@ -1,3 +1,5 @@
 /target
 .DS_Store
 *.swp
+*.app
+app_icon_1024.png
