@@ -24,9 +24,10 @@ use objc2_app_kit::{NSApp, NSApplicationActivationPolicy};
 use objc2_foundation::MainThreadMarker;
 use std::env;
 use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tray_icon::{TrayIcon, TrayIconBuilder};
+use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 enum AppState {
     Idle,
@@ -35,18 +36,56 @@ enum AppState {
     Pin(PinApp),
 }
 
+#[allow(deprecated)]
+fn activate_app() {
+    if let Some(mtm) = MainThreadMarker::new() {
+        let app = NSApp(mtm);
+        app.activateIgnoringOtherApps(true);
+        app.activate();
+    }
+}
+
+fn build_tray_menu(config: &AppConfig) -> Menu {
+    let menu = Menu::new();
+    let area_label = format!(
+        "📸 Ekran Alıntısı ({})",
+        AppConfig::hotkey_full_label(&config.area_hotkey_modifier, &config.area_hotkey_key)
+    );
+    let fs_label = format!(
+        "🖥️ Tüm Ekranı Yakala ({})",
+        AppConfig::hotkey_full_label(&config.fullscreen_hotkey_modifier, &config.fullscreen_hotkey_key)
+    );
+    let pin_label = format!(
+        "📌 Görsel Sabitle ({})",
+        AppConfig::hotkey_full_label(&config.pin_hotkey_modifier, &config.pin_hotkey_key)
+    );
+
+    let item_area = MenuItem::with_id("area", area_label, true, None);
+    let item_fs = MenuItem::with_id("fullscreen", fs_label, true, None);
+    let item_pin = MenuItem::with_id("pin", pin_label, true, None);
+    let item_settings = MenuItem::with_id("settings", "⚙️ Ayarlar & Kısayollar...", true, None);
+    let item_quit = MenuItem::with_id("quit", "❌ Çıkış", true, None);
+
+    let _ = menu.append(&item_area);
+    let _ = menu.append(&item_fs);
+    let _ = menu.append(&item_pin);
+    let _ = menu.append(&PredefinedMenuItem::separator());
+    let _ = menu.append(&item_settings);
+    let _ = menu.append(&PredefinedMenuItem::separator());
+    let _ = menu.append(&item_quit);
+
+    menu
+}
+
 struct MainApp {
     config: AppConfig,
-    _tray: TrayIcon,
+    tray: TrayIcon,
     hotkey_manager: GlobalHotKeyManager,
     area_hotkey: HotKey,
     fs_hotkey: HotKey,
     pin_hotkey: HotKey,
-    item_area_id: muda::MenuId,
-    item_fs_id: muda::MenuId,
-    item_pin_id: muda::MenuId,
-    item_settings_id: muda::MenuId,
-    item_quit_id: muda::MenuId,
+    menu_rx: Receiver<MenuEvent>,
+    hotkey_rx: Receiver<GlobalHotKeyEvent>,
     state: AppState,
     settings_save_flag: Option<Arc<Mutex<bool>>>,
     should_quit: bool,
@@ -66,7 +105,9 @@ impl MainApp {
         let _ = self.hotkey_manager.register(self.area_hotkey);
         let _ = self.hotkey_manager.register(self.fs_hotkey);
         let _ = self.hotkey_manager.register(self.pin_hotkey);
-        println!("✓ Hotkeys updated from config!");
+
+        self.tray.set_menu(Some(Box::new(build_tray_menu(&self.config))));
+        println!("✓ Hotkeys and tray menu updated from config!");
     }
 
     fn trigger_area_capture(&mut self, ctx: &egui::Context, from_menu: bool) {
@@ -87,11 +128,7 @@ impl MainApp {
 
                 self.state = AppState::Overlay(OverlayApp::new(captured));
 
-                // Force macOS to bring the application to the foreground
-                if let Some(mtm) = MainThreadMarker::new() {
-                    let app = NSApp(mtm);
-                    app.activate();
-                }
+                activate_app();
 
                 ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
@@ -142,9 +179,16 @@ impl MainApp {
         self.settings_save_flag = Some(flag.clone());
         self.state = AppState::Settings(SettingsApp::new(self.config.clone(), Some(flag)));
 
-        if let Some(mtm) = MainThreadMarker::new() {
-            let app = NSApp(mtm);
-            app.activate();
+        activate_app();
+
+        if let Ok(monitors) = xcap::Monitor::all() {
+            if let Some(m) = monitors.first() {
+                let mw = m.width().unwrap_or(1920) as f32 / 2.0;
+                let mh = m.height().unwrap_or(1080) as f32 / 2.0;
+                let x = ((mw - 560.0) / 2.0).max(50.0);
+                let y = ((mh - 520.0) / 2.0).max(50.0);
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(x, y)));
+            }
         }
 
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
@@ -155,11 +199,76 @@ impl MainApp {
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(ViewportCommand::Focus);
     }
+
+    fn process_events(&mut self, ctx: &egui::Context) {
+        // 1. Process Tray Menu Events from reactive channel
+        while let Ok(event) = self.menu_rx.try_recv() {
+            println!("🔥 MENU EVENT: {:?}", event.id);
+            match event.id.as_ref() {
+                "area" => {
+                    self.trigger_area_capture(ctx, true);
+                }
+                "fullscreen" => {
+                    self.trigger_fullscreen_capture(true);
+                }
+                "pin" => {
+                    activate_app();
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                        .pick_file()
+                    {
+                        if let Ok(img) = image::open(&path) {
+                            let rgba = img.to_rgba8();
+                            let scale = ctx.pixels_per_point().max(1.0);
+                            let pw = (rgba.width() as f32 / scale).clamp(200.0, 1400.0);
+                            let ph = (rgba.height() as f32 / scale).clamp(150.0, 1000.0);
+                            self.state = AppState::Pin(PinApp::new(rgba));
+                            activate_app();
+                            ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
+                            ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(pw, ph)));
+                            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+                            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                            ctx.send_viewport_cmd(ViewportCommand::Focus);
+                        }
+                    }
+                }
+                "settings" => {
+                    self.open_settings(ctx);
+                }
+                "quit" => {
+                    println!("👋 Menüden çıkış yapıldı.");
+                    std::process::exit(0);
+                }
+                other => {
+                    eprintln!("⚠️ Bilinmeyen menü id: {other}");
+                }
+            }
+        }
+
+        // 2. Process Global Hotkeys from reactive channel
+        while let Ok(event) = self.hotkey_rx.try_recv() {
+            if event.state == HotKeyState::Pressed {
+                if event.id == self.area_hotkey.id() {
+                    self.trigger_area_capture(ctx, false);
+                } else if event.id == self.fs_hotkey.id() {
+                    self.trigger_fullscreen_capture(false);
+                } else if event.id == self.pin_hotkey.id() {
+                    self.trigger_area_capture(ctx, false);
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for MainApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.process_events(ctx);
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.process_events(&ctx);
 
         // Handle window close request
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -168,52 +277,6 @@ impl eframe::App for MainApp {
                 self.state = AppState::Idle;
                 ctx.send_viewport_cmd(ViewportCommand::Visible(false));
                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-            }
-        }
-
-        // 1. Process Tray Menu Events
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id == self.item_area_id {
-                self.trigger_area_capture(&ctx, true);
-            } else if event.id == self.item_fs_id {
-                self.trigger_fullscreen_capture(true);
-            } else if event.id == self.item_pin_id {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
-                    .pick_file()
-                {
-                    if let Ok(img) = image::open(&path) {
-                        let rgba = img.to_rgba8();
-                        let pw = (rgba.width() as f32 / 2.0).clamp(200.0, 1400.0);
-                        let ph = (rgba.height() as f32 / 2.0).clamp(150.0, 1000.0);
-                        self.state = AppState::Pin(PinApp::new(rgba));
-                        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-                        ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
-                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(pw, ph)));
-                        ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
-                        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-                        ctx.send_viewport_cmd(ViewportCommand::Focus);
-                    }
-                }
-            } else if event.id == self.item_settings_id {
-                self.open_settings(&ctx);
-            } else if event.id == self.item_quit_id {
-                self.should_quit = true;
-                ctx.send_viewport_cmd(ViewportCommand::Close);
-                return;
-            }
-        }
-
-        // 2. Process Global Hotkeys
-        while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-            if event.state == HotKeyState::Pressed {
-                if event.id == self.area_hotkey.id() {
-                    self.trigger_area_capture(&ctx, false);
-                } else if event.id == self.fs_hotkey.id() {
-                    self.trigger_fullscreen_capture(false);
-                } else if event.id == self.pin_hotkey.id() {
-                    self.trigger_area_capture(&ctx, false);
-                }
             }
         }
 
@@ -228,10 +291,10 @@ impl eframe::App for MainApp {
                 if overlay.is_finished {
                     println!("✓ Overlay kapandı.");
                     if let Some(pin_img) = overlay.pin_requested.take() {
-                        let pw = (pin_img.width() as f32 / 2.0).clamp(200.0, 1400.0);
-                        let ph = (pin_img.height() as f32 / 2.0).clamp(150.0, 1000.0);
+                        let scale = ctx.pixels_per_point().max(1.0);
+                        let pw = (pin_img.width() as f32 / scale).clamp(200.0, 1400.0);
+                        let ph = (pin_img.height() as f32 / scale).clamp(150.0, 1000.0);
                         self.state = AppState::Pin(PinApp::new(pin_img));
-                        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
                         ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                         ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(pw, ph)));
                         ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
@@ -239,7 +302,6 @@ impl eframe::App for MainApp {
                         ctx.send_viewport_cmd(ViewportCommand::Focus);
                     } else {
                         self.state = AppState::Idle;
-                        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
                         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
                     }
                 }
@@ -314,39 +376,27 @@ fn main() -> eframe::Result {
             let config = AppConfig::load();
             let icon = create_camera_icon();
 
-            let menu = Menu::new();
-            let area_label = format!(
-                "📸 Ekran Alıntısı ({})",
-                AppConfig::hotkey_full_label(&config.area_hotkey_modifier, &config.area_hotkey_key)
-            );
-            let fs_label = format!(
-                "🖥️ Tüm Ekranı Yakala ({})",
-                AppConfig::hotkey_full_label(&config.fullscreen_hotkey_modifier, &config.fullscreen_hotkey_key)
-            );
-            let pin_label = format!(
-                "📌 Görsel Sabitle ({})",
-                AppConfig::hotkey_full_label(&config.pin_hotkey_modifier, &config.pin_hotkey_key)
-            );
+            // Set up reactive channels that wake up eframe immediately on any event!
+            let (menu_tx, menu_rx) = std::sync::mpsc::channel();
+            let ctx_m = cc.egui_ctx.clone();
+            MenuEvent::set_event_handler(Some(move |event| {
+                let _ = menu_tx.send(event);
+                ctx_m.request_repaint();
+            }));
 
-            let item_area = MenuItem::new(area_label, true, None);
-            let item_fs = MenuItem::new(fs_label, true, None);
-            let item_pin = MenuItem::new(pin_label, true, None);
-            let item_settings = MenuItem::new("⚙️ Ayarlar & Kısayollar...", true, None);
-            let item_quit = MenuItem::new("❌ Çıkış", true, None);
+            let (hotkey_tx, hotkey_rx) = std::sync::mpsc::channel();
+            let ctx_h = cc.egui_ctx.clone();
+            GlobalHotKeyEvent::set_event_handler(Some(move |event| {
+                let _ = hotkey_tx.send(event);
+                ctx_h.request_repaint();
+            }));
 
-            let item_area_id = item_area.id().clone();
-            let item_fs_id = item_fs.id().clone();
-            let item_pin_id = item_pin.id().clone();
-            let item_settings_id = item_settings.id().clone();
-            let item_quit_id = item_quit.id().clone();
+            let ctx_t = cc.egui_ctx.clone();
+            TrayIconEvent::set_event_handler(Some(move |_event| {
+                ctx_t.request_repaint();
+            }));
 
-            menu.append(&item_area).unwrap();
-            menu.append(&item_fs).unwrap();
-            menu.append(&item_pin).unwrap();
-            menu.append(&PredefinedMenuItem::separator()).unwrap();
-            menu.append(&item_settings).unwrap();
-            menu.append(&PredefinedMenuItem::separator()).unwrap();
-            menu.append(&item_quit).unwrap();
+            let menu = build_tray_menu(&config);
 
             let tray = TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
@@ -414,16 +464,13 @@ fn main() -> eframe::Result {
 
             Ok(Box::new(MainApp {
                 config,
-                _tray: tray,
+                tray,
                 hotkey_manager: hotkeys,
                 area_hotkey,
                 fs_hotkey,
                 pin_hotkey,
-                item_area_id,
-                item_fs_id,
-                item_pin_id,
-                item_settings_id,
-                item_quit_id,
+                menu_rx,
+                hotkey_rx,
                 state: initial_state,
                 settings_save_flag: None,
                 should_quit: false,
