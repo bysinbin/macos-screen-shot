@@ -8,6 +8,8 @@ use eframe::egui;
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use objc2_app_kit::{NSApp, NSApplicationActivationPolicy, NSEventMask};
+use objc2_foundation::{MainThreadMarker, NSDate, NSDefaultRunLoopMode};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -112,6 +114,13 @@ impl TrayRunner {
         let _ = hotkey_manager.register(area_hotkey);
         let _ = hotkey_manager.register(fs_hotkey);
         let _ = hotkey_manager.register(pin_hotkey);
+
+        // Tell macOS LaunchServices that the application is ready and responsive
+        if let Some(mtm) = MainThreadMarker::new() {
+            let app = NSApp(mtm);
+            let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+            app.finishLaunching();
+        }
 
         Ok(Self {
             config,
@@ -271,7 +280,24 @@ impl TrayRunner {
             AppConfig::hotkey_full_label(&self.config.area_hotkey_modifier, &self.config.area_hotkey_key)
         );
 
+        let mtm = MainThreadMarker::new();
+
         loop {
+            // Pump macOS NSApplication event loop so LaunchServices and WindowServer know the app is alive & responsive!
+            if let Some(m) = mtm {
+                let app = NSApp(m);
+                let until = NSDate::dateWithTimeIntervalSinceNow(0.02);
+                while let Some(event) = app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                    NSEventMask::Any,
+                    Some(&until),
+                    unsafe { NSDefaultRunLoopMode },
+                    true,
+                ) {
+                    app.sendEvent(&event);
+                }
+                app.updateWindows();
+            }
+
             // Process tray menu clicks
             if let Ok(event) = MenuEvent::receiver().try_recv() {
                 if event.id == self.item_area_id {
@@ -308,7 +334,7 @@ impl TrayRunner {
                 }
             }
 
-            std::thread::sleep(Duration::from_millis(40));
+            std::thread::sleep(Duration::from_millis(15));
         }
     }
 }
