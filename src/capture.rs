@@ -25,6 +25,16 @@ pub struct CapturedScreen {
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
+    fn CGPreflightScreenCaptureAccess() -> bool;
+}
+
+pub fn has_screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        CGPreflightScreenCaptureAccess()
+    }
+    #[cfg(not(target_os = "macos"))]
+    true
 }
 
 pub fn request_screen_capture_permission() -> bool {
@@ -70,6 +80,15 @@ impl CapturedScreen {
     }
 
     pub fn capture_primary() -> Result<Self, String> {
+        #[cfg(target_os = "macos")]
+        if !has_screen_capture_permission() {
+            let _ = request_screen_capture_permission();
+            let _ = std::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                .spawn();
+            return Err("macOS Ekran Kaydı izni verilmemiş!\n\nUygulamaların ve pencerelerin yakalanabilmesi için macOS'ta 'Ekran Kaydı' izni gereklidir. İzin verilmediğinde macOS yalnızca masaüstü duvar kağıdını gösterir.\n\nSistem Ayarları açıldı:\nLütfen 'ScreenShot' uygulamasının yanındaki izni açın (zaten açıksa, eksi (-) butonu ile kaldırıp '+' butonu ile /Applications/ScreenShot.app olarak tekrar ekleyin) ve uygulamayı yeniden başlatın.".to_string());
+        }
+
         // Method 1: Use macOS native screencapture utility.
         // This is 100% reliable across Spaces, Fullscreen Apps (like Antigravity),
         // and doesn't suffer from TCC ad-hoc window-redaction bugs.

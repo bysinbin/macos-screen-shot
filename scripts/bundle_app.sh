@@ -75,12 +75,15 @@ cat << 'EOF' > "$CONTENTS_DIR/Info.plist"
     <true/>
     <key>NSRequiresAquaSystemAppearance</key>
     <false/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>ScreenShot açık pencereleri ve ekran alanlarını yakalamak için ekran kaydı iznine ihtiyaç duyar.</string>
 </dict>
 </plist>
 EOF
 
 # 4. Temizle ve Kod İmzalama
 xattr -cr "$BUNDLE_DIR" 2>/dev/null || true
+xattr -c "$BUNDLE_DIR" 2>/dev/null || true
 dot_clean "$BUNDLE_DIR" 2>/dev/null || true
 if security find-certificate -c "ScreenShot Dev" >/dev/null 2>&1; then
     echo "🔏 'ScreenShot Dev' kalıcı geliştirici sertifikası ile imzalanıyor..."
@@ -90,7 +93,11 @@ else
     codesign --force --deep --sign - "$BUNDLE_DIR"
 fi
 
-cp -R "$BUNDLE_DIR" "$APP_NAME.app"
+ditto "$BUNDLE_DIR" "$APP_NAME.app"
+echo "📲 /Applications/$APP_NAME.app güncelleniyor..."
+rm -rf "/Applications/$APP_NAME.app"
+ditto "$BUNDLE_DIR" "/Applications/$APP_NAME.app"
 
 echo "🎉 Tebrikler! $APP_NAME.app paketi başarıyla oluşturuldu:"
 echo "   -> $DIR/$APP_NAME.app"
+echo "   -> /Applications/$APP_NAME.app"
