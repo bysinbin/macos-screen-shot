@@ -12,6 +12,7 @@ pub struct WindowInfo {
     pub height: u32,
 }
 
+#[allow(dead_code)]
 pub struct CapturedScreen {
     pub image: RgbaImage,
     pub monitor_name: String,

@@ -1,24 +1,41 @@
 # 📸 macOS Screen Shot (Rust)
 
-macOS için geliştirilmiş, **iShot** ve **Shottr** kalitesinde, ultra hızlı, hafif ve zengin özelliklere sahip ekran alıntısı ve işaretleme (screenshot & annotation) aracı.
+macOS için geliştirilmiş, **iShot** ve **Shottr** kalitesinde, ultra hızlı, hafif ve zengin özelliklere sahip ekran alıntısı, menubar ve işaretleme (screenshot & annotation) aracı.
 
-Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ekran yakalama API'lerini kullanır. Sıfır çöp toplayıcı (GC) gecikmesi ile 60/120 FPS akıcılıkta çalışır.
+Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ekran yakalama API'lerini kullanır. macOS Menubar'da (üst durum çubuğunda) yer alır, arka planda sıfır CPU ve minimum RAM (~20 MB) ile uyur ve global kısayollara anında tepki verir.
 
 ---
 
 ## ✨ Özellikler
 
-### 1. 🔍 Piksel Büyüteci (Loupe & Color Picker)
+### 1. 🎛️ macOS Menubar (Durum Çubuğu Simgesi)
+- Ekranın en üstündeki Menubar'da kamera simgesi `[📷]` ile yer alır.
+- Menüden tek tıkla:
+  - 📸 **Ekran Alıntısı Al**
+  - 🖥️ **Tüm Ekranı Yakala**
+  - 📌 **Görsel Sabitle...**
+  - ⚙️ **Ayarlar & Kısayollar...**
+  - ❌ **Çıkış**
+
+### 2. ⌨️ Özelleştirilebilir Global Kısayollar (Settings UI)
+- Menubar'daki **"Ayarlar & Kısayollar..."** menüsünden tüm global kısayolları dilediğiniz tuş kombinasyonuyla değiştirebilirsiniz:
+  - **Bölge Ekran Alıntısı**: Varsayılan `⌥A` (Option+A) — Dilerseniz `⌘⇧A`, `⌃⌥A` veya istediğiniz tuşa ayarlayın.
+  - **Tam Ekran Yakalama**: Varsayılan `⌥S` (Option+S).
+  - **Ekrana Sabitle**: Varsayılan `⌥P` (Option+P).
+- Ayarlar otomatik olarak `~/.config/macos_screenshot/config.json` dosyasına kaydedilir ve anında yürürlüğe girer.
+- Otomatik panoya kopyalama, otomatik klasöre kaydetme ve görsel formatı (PNG / JPEG) seçimleri.
+
+### 3. 🔍 Piksel Büyüteci (Loupe & Color Picker)
 - İmlecin etrafındaki pikselleri **8x büyütülmüş ızgara** üzerinde gösterir.
 - Merkezdeki hedef pikseli vurgular.
 - Anlık piksel rengini **HEX (`#FF3B30`)** ve **RGB (`255, 59, 48`)** formatında görüntüler.
 - **`C` tuşuyla** anında rengin HEX kodunu panoya kopyalar.
 
-### 2. 🪟 Akıllı Pencere Yakalama (Smart Window Snapping)
+### 4. 🪟 Akıllı Pencere Yakalama (Smart Window Snapping)
 - Fare açık bir pencerenin üzerine geldiğinde pencereyi otomatik algılar ve vurgular.
 - **`Boşluk (Space)` tuşuna** basarak tek tıkla pencerenin tam sınırlarını seçebilirsiniz.
 
-### 3. ✏️ Zengin İşaretleme Araçları (Annotation Toolkit)
+### 5. ✏️ Zengin İşaretleme Araçları (Annotation Toolkit)
 - 🔲 **Dikdörtgen (`R`)**: Vurgulamak istediğiniz alanlar için kenarlıklı veya hafif dolgulu kutu.
 - ⭕ **Daire / Elips (`O`)**: Oval veya dairesel alan vurgulama.
 - ➔ **Vektörel Ok (`A`)**: Yönlendirme ve dikkat çekme okları.
@@ -29,11 +46,11 @@ Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ek
 - 🎨 **Apple Renk Paleti**: Kırmızı, Mavi, Yeşil, Sarı, Mor, Beyaz.
 - ↩ **Geri Al (`Cmd+Z`)** & 🗑️ **Temizle**.
 
-### 4. 📌 Ekrana Sabitle (Pin to Screen - Floating Window)
+### 6. 📌 Ekrana Sabitle (Pin to Screen - Floating Window)
 - iShot'ın en popüler özelliği! Seçtiğiniz ekran alıntısını masaüstünde her şeyin üzerinde yüzen (`always-on-top`) şeffaf bir pencereye dönüştürür.
 - İstediğiniz yere sürükleyebilir, fare tekerleğiyle yakınlaştırıp uzaklaştırabilir, `Cmd+C` ile kopyalayabilir veya çift tıklayarak kapatabilirsiniz.
 
-### 5. 📋 Dışa Aktarma Seçenekleri
+### 7. 📋 Dışa Aktarma Seçenekleri
 - **Panoya Kopyala (`Enter` / `Cmd+C`)**: Çizimlerle birlikte görüntüyü doğrudan panoya atar.
 - **Masaüstüne Hızlı Kaydet (`Space`)**: `~/Desktop/Ekran Resmi YYYY-MM-DD.png` olarak anında kaydeder.
 - **Farklı Kaydet (`Cmd+S`)**: Dosya konumu ve biçimi (PNG / JPEG) seçerek kaydeder.
@@ -42,6 +59,14 @@ Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ek
 
 ## ⌨️ Klavye Kısayolları
 
+### Global Kısayollar (Arka Planda Dinlenir & Ayarlanabilir)
+| İşlev | Varsayılan Kısayol | Açıklama |
+| :--- | :--- | :--- |
+| **Ekran Alıntısı** | **`⌥ + A`** | Tam ekran overlay açar, seçim ve çizim yaptırır |
+| **Tam Ekran** | **`⌥ + S`** | Tüm ekranı tek tıkla yakalar ve panoya/klasöre kaydeder |
+| **Görsel Sabitle** | **`⌥ + P`** | Dosya seçtirerek masaüstüne sabitler |
+
+### Alıntı Esnasındaki Kısayollar
 | Kısayol | İşlev |
 | :--- | :--- |
 | **`Enter` / `⌘ + C`** | Seçimi çizimlerle panoya kopyalar ve çıkar |
@@ -61,20 +86,29 @@ Tamamen **Rust** ile geliştirilmiş olup işletim sisteminin yerel grafik ve ek
 
 ---
 
-## 🚀 Kurulum ve Çalıştırma
+## 🚀 Çalıştırma Seçenekleri
 
-### Gereksinimler
-- macOS (Apple Silicon M1/M2/M3/M4 veya Intel)
-- Rust & Cargo (1.80+)
-
-### Çalıştırma
+### 1. Menubar Servisi Olarak Başlatma (Tavsiye Edilen)
+En üst menü çubuğuna `[📷]` simgesini yerleştirir ve global kısayolları dinlemeye başlar:
 ```bash
-# Projeyi derleyin ve ekran alıntısı modunu başlatın
+./target/release/macos_screenshot
+# veya
 cargo run --release
 ```
 
-### Sabitleme (Pin) Modunu Doğrudan Çalıştırma
-Dilerseniz mevcut bir görseli doğrudan ekrana sabitleyebilirsiniz:
+### 2. Doğrudan Ayarlar Penceresini Açma
+Kısayolları ve klasör tercihlerini yapılandırmak için:
+```bash
+cargo run --release -- --settings
+```
+
+### 3. Doğrudan Ekran Alıntısı Modunu Başlatma
+Menubar beklemeden anında ekran görüntüsü almak için:
+```bash
+cargo run --release -- --capture
+```
+
+### 4. Bir Görseli Masaüstüne Sabitleme (Pin)
 ```bash
 cargo run --release -- --pin /path/to/image.png
 ```
@@ -84,14 +118,4 @@ cargo run --release -- --pin /path/to/image.png
 ## 🔐 macOS İzinleri
 macOS'ta uygulamanın ekranı okuyabilmesi için **Ekran Kaydı (Screen Recording)** iznine ihtiyacı vardır:
 1. **Sistem Ayarları (System Settings)** > **Gizlilik ve Güvenlik (Privacy & Security)** bölümüne gidin.
-2. **Ekran Kaydı (Screen Recording)** sekmesinde terminalinize veya oluşturduğunuz uygulamaya izin verin.
-
----
-
-## 🛠️ Mimari ve Kullanılan Teknolojiler
-
-- **[xcap](https://crates.io/crates/xcap)**: Yüksek performanslı, yerel CoreGraphics ve ScreenCaptureKit ekran ve pencere yakalama.
-- **[egui](https://crates.io/crates/egui) & [eframe](https://crates.io/crates/eframe)**: Donanım hızlandırmalı (Metal GPU), anlık tepkili tam ekran şeffaf arayüz.
-- **[arboard](https://crates.io/crates/arboard)**: Platformlar arası yerel pano (clipboard) yönetimi.
-- **[imageproc](https://crates.io/crates/imageproc) & [image](https://crates.io/crates/image)**: Anti-aliased çizimler, mozaik algoritması ve Retina çözünürlükte kırpma.
-- **[rfd](https://crates.io/crates/rfd)**: macOS yerel dosya kaydetme pencereleri.
+2. **Ekran Kaydı (Screen Recording)** sekmesinde terminalinize veya uygulamanıza izin verin.
