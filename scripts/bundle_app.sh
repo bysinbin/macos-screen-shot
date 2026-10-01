@@ -80,7 +80,8 @@ cat << 'EOF' > "$CONTENTS_DIR/Info.plist"
 EOF
 
 # 4. Temizle ve Ad-hoc codesign
-xattr -cr "$BUNDLE_DIR"
+dot_clean "$BUNDLE_DIR" 2>/dev/null || true
+xattr -rc "$BUNDLE_DIR" 2>/dev/null || true
 codesign --force --deep --sign - "$BUNDLE_DIR"
 
 echo "🎉 Tebrikler! $APP_NAME.app paketi başarıyla oluşturuldu:"
