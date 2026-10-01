@@ -111,9 +111,21 @@ impl MainApp {
     }
 
     fn trigger_area_capture(&mut self, ctx: &egui::Context, from_menu: bool) {
+        // Ensure any previous window is completely ordered out before capture
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        if let Some(mtm) = MainThreadMarker::new() {
+            let app = NSApp(mtm);
+            for w in app.windows() {
+                w.orderOut(None);
+            }
+        }
+
         if from_menu {
             std::thread::sleep(Duration::from_millis(150));
+        } else {
+            std::thread::sleep(Duration::from_millis(60));
         }
+
         println!("📸 Ekran alıntısı başlatılıyor...");
         match CapturedScreen::capture_primary() {
             Ok(captured) => {
@@ -139,6 +151,18 @@ impl MainApp {
             }
             Err(e) => {
                 eprintln!("❌ Ekran yakalama hatası: {e}");
+                self.state = AppState::Idle;
+                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+
+                let msg = e.replace('"', "\\\"");
+                let script = format!(
+                    "display dialog \"{}\" with title \"ScreenShot - İzin Hatası\" buttons {{\"Tamam\"}} default button \"Tamam\" with icon stop",
+                    msg
+                );
+                let _ = std::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(script)
+                    .spawn();
             }
         }
     }
@@ -283,7 +307,8 @@ impl eframe::App for MainApp {
         // 3. Render state
         match &mut self.state {
             AppState::Idle => {
-                // Window is invisible, nothing rendered
+                // Window is invisible
+                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
             }
             AppState::Overlay(overlay) => {
                 overlay.ui(ui, frame);
@@ -339,6 +364,7 @@ fn main() -> eframe::Result {
 
     let start_mode_capture = args.len() >= 2 && args[1] == "--capture";
     let start_mode_settings = args.len() >= 2 && args[1] == "--settings";
+    let is_cli_start = start_mode_capture || start_mode_settings;
 
     let (init_w, init_h) = if let Ok(monitors) = xcap::Monitor::all() {
         if let Some(m) = monitors.first() {
@@ -354,11 +380,10 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_visible(start_mode_capture || start_mode_settings)
+            .with_visible(is_cli_start)
             .with_decorations(start_mode_settings)
-            .with_inner_size(if start_mode_settings { [560.0, 520.0] } else { [init_w, init_h] })
-            .with_position([0.0, 0.0])
-            .with_always_on_top()
+            .with_inner_size(if start_mode_settings { [560.0, 520.0] } else if start_mode_capture { [init_w, init_h] } else { [1.0, 1.0] })
+            .with_transparent(true)
             .with_title("ScreenShot"),
         ..Default::default()
     };
@@ -371,6 +396,11 @@ fn main() -> eframe::Result {
                 let app = NSApp(mtm);
                 let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
                 app.finishLaunching();
+                if !is_cli_start {
+                    for window in app.windows() {
+                        window.orderOut(None);
+                    }
+                }
             }
 
             let config = AppConfig::load();

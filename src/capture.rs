@@ -21,8 +21,39 @@ pub struct CapturedScreen {
     pub windows: Vec<WindowInfo>,
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+pub fn has_screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        CGPreflightScreenCaptureAccess()
+    }
+    #[cfg(not(target_os = "macos"))]
+    true
+}
+
+pub fn request_screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        CGRequestScreenCaptureAccess()
+    }
+    #[cfg(not(target_os = "macos"))]
+    true
+}
+
 impl CapturedScreen {
     pub fn capture_primary() -> Result<Self, String> {
+        #[cfg(target_os = "macos")]
+        if !has_screen_capture_permission() {
+            let _ = request_screen_capture_permission();
+            return Err("macOS Ekran Kaydı izni gerekli. Lütfen Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı bölümünden ScreenShot için izin verin.".to_string());
+        }
+
         let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {e}"))?;
         if monitors.is_empty() {
             return Err("No monitors found".to_string());
@@ -42,6 +73,20 @@ impl CapturedScreen {
 
         let physical_width = image.width();
         let physical_height = image.height();
+
+        // Safety check: is the captured screen pure black due to stale macOS TCC permission?
+        let mut has_visible_pixels = false;
+        for p in image.pixels().step_by(100) {
+            if p[0] > 15 || p[1] > 15 || p[2] > 15 {
+                has_visible_pixels = true;
+                break;
+            }
+        }
+        if !has_visible_pixels {
+            #[cfg(target_os = "macos")]
+            let _ = request_screen_capture_permission();
+            return Err("Ekran yakalandı ancak görüntü tamamen siyah. Lütfen macOS Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı bölümünden ScreenShot iznini kapatıp tekrar açın.".to_string());
+        }
 
         // Scan windows for smart window snapping
         let mut detected_windows = Vec::new();

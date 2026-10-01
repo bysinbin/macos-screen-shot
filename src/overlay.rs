@@ -107,7 +107,8 @@ impl OverlayApp {
 impl eframe::App for OverlayApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        let screen_size = ui.available_size();
+        let total_rect = ui.max_rect();
+        let screen_size = total_rect.size();
         if screen_size.x < 10.0 || screen_size.y < 10.0 {
             ctx.request_repaint();
             return;
@@ -129,7 +130,6 @@ impl eframe::App for OverlayApp {
         let scale_y = self.captured.physical_height as f32 / screen_size.y;
 
         let painter = ui.painter().clone();
-        let total_rect = Rect::from_min_size(Pos2::ZERO, screen_size);
 
         // 2. Draw background screenshot image 1:1
         if let Some(tex) = &self.texture {
@@ -194,13 +194,13 @@ impl eframe::App for OverlayApp {
 
         if let Some(sel) = norm_sel {
             // Top band
-            painter.rect_filled(Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(screen_size.x, sel.min.y)), 0.0, mask_color);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(total_rect.min.x, total_rect.min.y), Pos2::new(total_rect.max.x, sel.min.y)), 0.0, mask_color);
             // Bottom band
-            painter.rect_filled(Rect::from_min_max(Pos2::new(0.0, sel.max.y), Pos2::new(screen_size.x, screen_size.y)), 0.0, mask_color);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(total_rect.min.x, sel.max.y), Pos2::new(total_rect.max.x, total_rect.max.y)), 0.0, mask_color);
             // Left band
-            painter.rect_filled(Rect::from_min_max(Pos2::new(0.0, sel.min.y), Pos2::new(sel.min.x, sel.max.y)), 0.0, mask_color);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(total_rect.min.x, sel.min.y), Pos2::new(sel.min.x, sel.max.y)), 0.0, mask_color);
             // Right band
-            painter.rect_filled(Rect::from_min_max(Pos2::new(sel.max.x, sel.min.y), Pos2::new(screen_size.x, sel.max.y)), 0.0, mask_color);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(sel.max.x, sel.min.y), Pos2::new(total_rect.max.x, sel.max.y)), 0.0, mask_color);
 
             // Selection Border (Crisp Apple Cyan/Blue)
             painter.rect_stroke(
@@ -357,11 +357,11 @@ impl eframe::App for OverlayApp {
 
             // Crosshair Guidelines across entire screen
             painter.line_segment(
-                [Pos2::new(0.0, mouse_pos.y), Pos2::new(screen_size.x, mouse_pos.y)],
+                [Pos2::new(total_rect.min.x, mouse_pos.y), Pos2::new(total_rect.max.x, mouse_pos.y)],
                 Stroke::new(0.5, Color32::from_white_alpha(70)),
             );
             painter.line_segment(
-                [Pos2::new(mouse_pos.x, 0.0), Pos2::new(mouse_pos.x, screen_size.y)],
+                [Pos2::new(mouse_pos.x, total_rect.min.y), Pos2::new(mouse_pos.x, total_rect.max.y)],
                 Stroke::new(0.5, Color32::from_white_alpha(70)),
             );
 
