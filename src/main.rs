@@ -80,10 +80,23 @@ impl MainApp {
                     "✓ Ekran başarıyla yakalandı: {}x{} piksel",
                     captured.physical_width, captured.physical_height
                 );
+
+                let scale = ctx.pixels_per_point().max(1.0);
+                let screen_w = captured.physical_width as f32 / scale;
+                let screen_h = captured.physical_height as f32 / scale;
+
                 self.state = AppState::Overlay(OverlayApp::new(captured));
+
+                // Force macOS to bring the application to the foreground
+                if let Some(mtm) = MainThreadMarker::new() {
+                    let app = NSApp(mtm);
+                    app.activate();
+                }
+
                 ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
-                ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(screen_w, screen_h)));
                 ctx.send_viewport_cmd(ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
             }
@@ -128,6 +141,12 @@ impl MainApp {
         let flag = Arc::new(Mutex::new(false));
         self.settings_save_flag = Some(flag.clone());
         self.state = AppState::Settings(SettingsApp::new(self.config.clone(), Some(flag)));
+
+        if let Some(mtm) = MainThreadMarker::new() {
+            let app = NSApp(mtm);
+            app.activate();
+        }
+
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
         ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(560.0, 520.0)));
@@ -259,10 +278,24 @@ fn main() -> eframe::Result {
     let start_mode_capture = args.len() >= 2 && args[1] == "--capture";
     let start_mode_settings = args.len() >= 2 && args[1] == "--settings";
 
+    let (init_w, init_h) = if let Ok(monitors) = xcap::Monitor::all() {
+        if let Some(m) = monitors.first() {
+            let w = m.width().unwrap_or(2560) as f32 / 2.0;
+            let h = m.height().unwrap_or(1600) as f32 / 2.0;
+            (w, h)
+        } else {
+            (1280.0, 800.0)
+        }
+    } else {
+        (1280.0, 800.0)
+    };
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_visible(start_mode_capture || start_mode_settings)
             .with_decorations(start_mode_settings)
+            .with_inner_size(if start_mode_settings { [560.0, 520.0] } else { [init_w, init_h] })
+            .with_position([0.0, 0.0])
             .with_always_on_top()
             .with_title("ScreenShot"),
         ..Default::default()
@@ -327,7 +360,11 @@ fn main() -> eframe::Result {
             let fs_hotkey = config.to_fullscreen_hotkey();
             let pin_hotkey = config.to_pin_hotkey();
 
-            let _ = hotkeys.register(area_hotkey);
+            if let Err(e) = hotkeys.register(area_hotkey) {
+                eprintln!("❌ Area hotkey register error: {e}");
+            } else {
+                println!("✓ Registered area_hotkey: {:?}", area_hotkey);
+            }
             let _ = hotkeys.register(fs_hotkey);
             let _ = hotkeys.register(pin_hotkey);
 
@@ -339,10 +376,19 @@ fn main() -> eframe::Result {
                             "✓ CLI --capture: Ekran yakalandı ({}x{})",
                             captured.physical_width, captured.physical_height
                         );
+                        let w = captured.physical_width as f32 / 2.0;
+                        let h = captured.physical_height as f32 / 2.0;
                         initial_state = AppState::Overlay(OverlayApp::new(captured));
+
+                        if let Some(mtm) = MainThreadMarker::new() {
+                            let app = NSApp(mtm);
+                            app.activate();
+                        }
+
                         cc.egui_ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                         cc.egui_ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
-                        cc.egui_ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+                        cc.egui_ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
+                        cc.egui_ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(w, h)));
                         cc.egui_ctx.send_viewport_cmd(ViewportCommand::Visible(true));
                         cc.egui_ctx.send_viewport_cmd(ViewportCommand::Focus);
                     }
@@ -353,6 +399,10 @@ fn main() -> eframe::Result {
             } else if start_mode_settings {
                 let flag = Arc::new(Mutex::new(false));
                 initial_state = AppState::Settings(SettingsApp::new(config.clone(), Some(flag)));
+                if let Some(mtm) = MainThreadMarker::new() {
+                    let app = NSApp(mtm);
+                    app.activate();
+                }
                 cc.egui_ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(560.0, 520.0)));
                 cc.egui_ctx.send_viewport_cmd(ViewportCommand::Visible(true));
                 cc.egui_ctx.send_viewport_cmd(ViewportCommand::Focus);

@@ -108,6 +108,10 @@ impl eframe::App for OverlayApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let screen_size = ui.available_size();
+        if screen_size.x < 10.0 || screen_size.y < 10.0 {
+            ctx.request_repaint();
+            return;
+        }
 
         // 1. Load screenshot texture once
         if self.texture.is_none() {
