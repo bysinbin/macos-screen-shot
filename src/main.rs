@@ -448,6 +448,9 @@ fn main() -> eframe::Result {
             let _ = hotkeys.register(fs_hotkey);
             let _ = hotkeys.register(pin_hotkey);
 
+            #[cfg(target_os = "macos")]
+            capture::request_screen_capture_permission();
+
             let mut initial_state = AppState::Idle;
             if start_mode_capture {
                 match CapturedScreen::capture_primary() {

@@ -137,10 +137,15 @@ impl eframe::App for OverlayApp {
             painter.image(tex.id(), total_rect, uv, Color32::WHITE);
         }
 
-        // 3. Handle Keyboard Shortcuts
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            self.is_finished = true;
-            return;
+        // 3. Handle Keyboard Shortcuts & Mouse Cancel
+        if ctx.input(|i| i.key_pressed(Key::Escape) || i.pointer.secondary_clicked()) {
+            if self.selection.is_some() {
+                self.selection = None;
+                self.annotations.items.clear();
+            } else {
+                self.is_finished = true;
+                return;
+            }
         }
 
         // Quick Save (Cmd+Shift+S or Space)
@@ -336,7 +341,7 @@ impl eframe::App for OverlayApp {
                 );
 
                 let title = if !w.title.is_empty() { &w.title } else { &w.app_name };
-                let badge_text = format!("␣ [Space] Pencereyi Seç: {}", title);
+                let badge_text = format!("Tıkla veya [Space]: {}", title);
                 let badge_rect = Rect::from_center_size(
                     Pos2::new(win_rect.center().x, win_rect.min.y + 24.0),
                     Vec2::new((badge_text.len() as f32 * 7.5 + 24.0).min(400.0), 28.0),
@@ -549,7 +554,9 @@ impl eframe::App for OverlayApp {
                     self.drag_start = Some(mouse_pos);
                 }
                 if let Some(start) = self.drag_start {
-                    self.selection = Some(Rect::from_two_pos(start, mouse_pos));
+                    if (mouse_pos - start).length() > 4.0 {
+                        self.selection = Some(Rect::from_two_pos(start, mouse_pos));
+                    }
                 }
             } else if let Some(sel) = norm_sel {
                 // Check if clicking resize handles
@@ -604,6 +611,49 @@ impl eframe::App for OverlayApp {
 
         // Pointer release: finalize actions
         if pointer_released {
+            if self.is_dragging_new {
+                if let Some(sel) = self.normalized_selection() {
+                    // Check if it was a click or an extremely small drag (< 8x8 px)
+                    if sel.width() < 8.0 || sel.height() < 8.0 {
+                        // Check if a window was clicked
+                        let clicked_win = self.captured.windows.iter().find(|w| {
+                            let wx = w.x as f32 / scale_x;
+                            let wy = w.y as f32 / scale_y;
+                            let ww = w.width as f32 / scale_x;
+                            let wh = w.height as f32 / scale_y;
+                            let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
+                            r.contains(mouse_pos)
+                        });
+                        if let Some(w) = clicked_win {
+                            let wx = (w.x as f32 / scale_x).clamp(0.0, screen_size.x);
+                            let wy = (w.y as f32 / scale_y).clamp(0.0, screen_size.y);
+                            let ww = (w.width as f32 / scale_x).min(screen_size.x - wx);
+                            let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
+                            self.selection = Some(Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh)));
+                        } else {
+                            // Clicking on empty area clears selection so it doesn't get stuck on 0x0
+                            self.selection = None;
+                        }
+                    }
+                } else {
+                    // Selection wasn't started yet because drag < 4.0 px (pure click)
+                    let clicked_win = self.captured.windows.iter().find(|w| {
+                        let wx = w.x as f32 / scale_x;
+                        let wy = w.y as f32 / scale_y;
+                        let ww = w.width as f32 / scale_x;
+                        let wh = w.height as f32 / scale_y;
+                        let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
+                        r.contains(mouse_pos)
+                    });
+                    if let Some(w) = clicked_win {
+                        let wx = (w.x as f32 / scale_x).clamp(0.0, screen_size.x);
+                        let wy = (w.y as f32 / scale_y).clamp(0.0, screen_size.y);
+                        let ww = (w.width as f32 / scale_x).min(screen_size.x - wx);
+                        let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
+                        self.selection = Some(Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh)));
+                    }
+                }
+            }
             self.is_dragging_new = false;
             self.drag_start = None;
             self.active_handle = None;

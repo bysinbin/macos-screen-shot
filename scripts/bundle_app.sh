@@ -79,10 +79,16 @@ cat << 'EOF' > "$CONTENTS_DIR/Info.plist"
 </plist>
 EOF
 
-# 4. Temizle ve Ad-hoc codesign
+# 4. Temizle ve Kod İmzalama
 dot_clean "$BUNDLE_DIR" 2>/dev/null || true
 xattr -rc "$BUNDLE_DIR" 2>/dev/null || true
-codesign --force --deep --sign - "$BUNDLE_DIR"
+if security find-certificate -c "ScreenShot Dev" >/dev/null 2>&1; then
+    echo "🔏 'ScreenShot Dev' kalıcı geliştirici sertifikası ile imzalanıyor..."
+    codesign --force --deep --sign "ScreenShot Dev" "$BUNDLE_DIR"
+else
+    echo "🔏 Ad-hoc imza uygulanıyor..."
+    codesign --force --deep --sign - "$BUNDLE_DIR"
+fi
 
 echo "🎉 Tebrikler! $APP_NAME.app paketi başarıyla oluşturuldu:"
 echo "   -> $DIR/$BUNDLE_DIR"
