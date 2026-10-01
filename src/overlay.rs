@@ -41,6 +41,7 @@ pub struct OverlayApp {
 
     // Trigger pin window
     pub pin_requested: Option<RgbaImage>,
+    pub is_finished: bool,
 }
 
 impl OverlayApp {
@@ -60,6 +61,7 @@ impl OverlayApp {
             pen_points: Vec::new(),
             toast_message: None,
             pin_requested: None,
+            is_finished: false,
         }
     }
 
@@ -133,7 +135,7 @@ impl eframe::App for OverlayApp {
 
         // 3. Handle Keyboard Shortcuts
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.is_finished = true;
             return;
         }
 
@@ -155,8 +157,7 @@ impl eframe::App for OverlayApp {
                 let baked = bake_and_crop(&self.captured.image, sel, scale_x, scale_y, &self.annotations);
                 if let Ok(()) = copy_to_clipboard(&baked) {
                     self.show_toast("✓ Panoya Kopyalandı");
-                    // Delay close slightly or close immediately
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.is_finished = true;
                     return;
                 }
             }
@@ -470,7 +471,7 @@ impl eframe::App for OverlayApp {
                 if ui.add(pin_btn).on_hover_text("Ekrana Sabitle (Yüzen Pencere)").clicked() {
                     let baked = bake_and_crop(&self.captured.image, sel, scale_x, scale_y, &self.annotations);
                     self.pin_requested = Some(baked);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.is_finished = true;
                 }
 
                 // Save As Button (💾)
@@ -498,12 +499,12 @@ impl eframe::App for OverlayApp {
                 if ui.add(copy_btn).on_hover_text("Panoya Kopyala ve Çık (Enter)").clicked() {
                     let baked = bake_and_crop(&self.captured.image, sel, scale_x, scale_y, &self.annotations);
                     let _ = copy_to_clipboard(&baked);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.is_finished = true;
                 }
 
                 // Cancel Button (✕)
                 if ui.button(egui::RichText::new("✕").size(13.0)).on_hover_text("İptal (Esc)").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.is_finished = true;
                 }
             });
         }

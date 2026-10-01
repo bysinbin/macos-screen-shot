@@ -6,6 +6,7 @@ pub struct SettingsApp {
     pub config: AppConfig,
     saved_notification: Option<std::time::Instant>,
     pub on_save_callback: Option<Arc<Mutex<bool>>>,
+    pub is_closed: bool,
 }
 
 impl SettingsApp {
@@ -14,6 +15,7 @@ impl SettingsApp {
             config,
             saved_notification: None,
             on_save_callback: on_save_flag,
+            is_closed: false,
         }
     }
 }
@@ -235,8 +237,8 @@ impl eframe::App for SettingsApp {
                     }
                 }
 
-                if ui.button("Kapat").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                if ui.button("Kapat").clicked() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.is_closed = true;
                 }
 
                 if let Some(t) = self.saved_notification {

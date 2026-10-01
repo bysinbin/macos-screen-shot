@@ -6,6 +6,7 @@ pub struct PinApp {
     texture: Option<TextureHandle>,
     zoom: f32,
     copied_notification: Option<std::time::Instant>,
+    pub is_closed: bool,
 }
 
 impl PinApp {
@@ -15,6 +16,7 @@ impl PinApp {
             texture: None,
             zoom: 1.0,
             copied_notification: None,
+            is_closed: false,
         }
     }
 }
@@ -34,7 +36,7 @@ impl eframe::App for PinApp {
 
         // Handle Escape to close
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.is_closed = true;
             return;
         }
 
@@ -82,7 +84,7 @@ impl eframe::App for PinApp {
             // Double click to close
             let response = ui.allocate_rect(draw_rect, egui::Sense::click_and_drag());
             if response.double_clicked() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.is_closed = true;
             }
             if response.dragged() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
