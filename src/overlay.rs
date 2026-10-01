@@ -413,7 +413,7 @@ impl eframe::App for OverlayApp {
 
         // 9. Floating Toolbar (Rendered above or below selection)
         if let Some(sel) = norm_sel {
-            let toolbar_width = 620.0;
+            let toolbar_width = 850.0;
             let toolbar_height = 44.0;
 
             let mut tb_x = sel.center().x - toolbar_width * 0.5;
@@ -435,6 +435,7 @@ impl eframe::App for OverlayApp {
 
             // Render toolbar widgets using a sub-ui area
             let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(tb_rect));
+            child_ui.spacing_mut().item_spacing = Vec2::new(5.0, 0.0);
             child_ui.horizontal_centered(|ui| {
                 ui.add_space(8.0);
 
