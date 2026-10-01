@@ -24,17 +24,7 @@ pub struct CapturedScreen {
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
-    fn CGPreflightScreenCaptureAccess() -> bool;
     fn CGRequestScreenCaptureAccess() -> bool;
-}
-
-pub fn has_screen_capture_permission() -> bool {
-    #[cfg(target_os = "macos")]
-    unsafe {
-        CGPreflightScreenCaptureAccess()
-    }
-    #[cfg(not(target_os = "macos"))]
-    true
 }
 
 pub fn request_screen_capture_permission() -> bool {
@@ -48,15 +38,13 @@ pub fn request_screen_capture_permission() -> bool {
 
 impl CapturedScreen {
     pub fn capture_primary() -> Result<Self, String> {
-        #[cfg(target_os = "macos")]
-        if !has_screen_capture_permission() {
+        let monitors = Monitor::all().map_err(|e| {
+            #[cfg(target_os = "macos")]
             let _ = request_screen_capture_permission();
-            return Err("macOS Ekran Kaydı izni gerekli. Lütfen Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı bölümünden ScreenShot için izin verin.".to_string());
-        }
-
-        let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {e}"))?;
+            format!("Monitör listesi alınamadı: {e}")
+        })?;
         if monitors.is_empty() {
-            return Err("No monitors found".to_string());
+            return Err("Monitör bulunamadı".to_string());
         }
 
         // Find primary monitor, or fallback to the first one
@@ -69,7 +57,11 @@ impl CapturedScreen {
         let monitor_name = primary.name().unwrap_or_else(|_| "Primary Display".to_string());
         let image = primary
             .capture_image()
-            .map_err(|e| format!("Failed to capture screen image: {e}"))?;
+            .map_err(|e| {
+                #[cfg(target_os = "macos")]
+                let _ = request_screen_capture_permission();
+                format!("Ekran görüntüsü yakalanamadı: {e}")
+            })?;
 
         let physical_width = image.width();
         let physical_height = image.height();
