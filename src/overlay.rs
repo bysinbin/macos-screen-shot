@@ -94,6 +94,48 @@ impl OverlayApp {
         ]
     }
 
+    fn find_best_window_at(&self, mouse_pos: Pos2, scale_x: f32, scale_y: f32, screen_size: Vec2) -> Option<(Rect, String)> {
+        let mut candidates: Vec<_> = self.captured.windows.iter().filter(|w| {
+            let wx = w.x as f32 / scale_x;
+            let wy = w.y as f32 / scale_y;
+            let ww = w.width as f32 / scale_x;
+            let wh = w.height as f32 / scale_y;
+            let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
+            r.contains(mouse_pos)
+        }).collect();
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Sort candidates:
+        // 1. Prefer windows with real titles (main application windows)
+        // 2. Prefer larger area (so we pick the full window, not a toolbar, tab, or sub-container)
+        candidates.sort_by(|a, b| {
+            let a_has_title = !a.title.is_empty();
+            let b_has_title = !b.title.is_empty();
+            if a_has_title != b_has_title {
+                return b_has_title.cmp(&a_has_title);
+            }
+            let a_area = (a.width as u64) * (a.height as u64);
+            let b_area = (b.width as u64) * (b.height as u64);
+            b_area.cmp(&a_area)
+        });
+
+        let best = candidates.first()?;
+        let wx = (best.x as f32 / scale_x).clamp(0.0, screen_size.x);
+        let wy = (best.y as f32 / scale_y).clamp(0.0, screen_size.y);
+        let ww = (best.width as f32 / scale_x).min(screen_size.x - wx);
+        let wh = (best.height as f32 / scale_y).min(screen_size.y - wy);
+        let rect = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
+        let title = if !best.title.is_empty() {
+            best.title.clone()
+        } else {
+            best.app_name.clone()
+        };
+        Some((rect, title))
+    }
+
     fn handle_cursor_icon(pos: HandlePosition) -> CursorIcon {
         match pos {
             HandlePosition::TopLeft | HandlePosition::BottomRight => CursorIcon::ResizeNwSe,
@@ -318,22 +360,7 @@ impl eframe::App for OverlayApp {
             painter.rect_filled(total_rect, 0.0, Color32::from_black_alpha(60));
 
             // Smart Window Snapping
-            let hovered_win = self.captured.windows.iter().find(|w| {
-                let wx = w.x as f32 / scale_x;
-                let wy = w.y as f32 / scale_y;
-                let ww = w.width as f32 / scale_x;
-                let wh = w.height as f32 / scale_y;
-                let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
-                r.contains(mouse_pos)
-            });
-
-            if let Some(w) = hovered_win {
-                let wx = (w.x as f32 / scale_x).clamp(0.0, screen_size.x);
-                let wy = (w.y as f32 / scale_y).clamp(0.0, screen_size.y);
-                let ww = (w.width as f32 / scale_x).min(screen_size.x - wx);
-                let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
-                let win_rect = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
-
+            if let Some((win_rect, title)) = self.find_best_window_at(mouse_pos, scale_x, scale_y, screen_size) {
                 painter.rect_stroke(
                     win_rect,
                     8.0,
@@ -341,7 +368,6 @@ impl eframe::App for OverlayApp {
                     egui::StrokeKind::Middle,
                 );
 
-                let title = if !w.title.is_empty() { &w.title } else { &w.app_name };
                 let badge_text = format!("Tıkla veya [Space]: {}", title);
                 let badge_rect = Rect::from_center_size(
                     Pos2::new(win_rect.center().x, win_rect.min.y + 24.0),
@@ -412,26 +438,94 @@ impl eframe::App for OverlayApp {
             child_ui.horizontal_centered(|ui| {
                 ui.add_space(8.0);
 
-                let tools = [
-                    (Tool::Select, "↖", "Seç / Taşı (V)"),
-                    (Tool::Rectangle, "▭", "Dikdörtgen (R)"),
-                    (Tool::Ellipse, "◯", "Daire (O)"),
-                    (Tool::Arrow, "➔", "Ok (A)"),
-                    (Tool::Pen, "✎", "Kalem (P)"),
-                    (Tool::Step, "①", "Numara (N)"),
-                    (Tool::Mosaic, "▦", "Buzlama (B)"),
-                    (Tool::Highlighter, "▨", "Vurgulayıcı (H)"),
-                ];
-
-                for (tool, icon, tip) in tools {
+                for (tool, tip) in [
+                    (Tool::Select, "Seç / Taşı (V)"),
+                    (Tool::Rectangle, "Dikdörtgen (R)"),
+                    (Tool::Ellipse, "Daire (O)"),
+                    (Tool::Arrow, "Ok (A)"),
+                    (Tool::Pen, "Kalem (P)"),
+                    (Tool::Text, "Metin (T)"),
+                    (Tool::Step, "Numara (N)"),
+                    (Tool::Mosaic, "Buzlama (B)"),
+                    (Tool::Highlighter, "Vurgulayıcı (H)"),
+                ] {
                     let is_active = self.annotations.active_tool == tool;
-                    let btn_color = if is_active { Color32::from_rgb(0, 122, 255) } else { Color32::TRANSPARENT };
-                    let text_color = if is_active { Color32::WHITE } else { Color32::from_white_alpha(200) };
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(30.0, 26.0), egui::Sense::click());
+                    let bg_color = if is_active {
+                        Color32::from_rgb(0, 122, 255)
+                    } else if resp.hovered() {
+                        Color32::from_white_alpha(35)
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+                    ui.painter().rect_filled(rect, 6.0, bg_color);
+                    let icon_color = if is_active { Color32::WHITE } else { Color32::from_white_alpha(220) };
+                    let c = rect.center();
 
-                    let btn = egui::Button::new(egui::RichText::new(icon).size(15.0).color(text_color))
-                        .fill(btn_color)
-                        .corner_radius(6.0);
-                    if ui.add(btn).on_hover_text(tip).clicked() {
+                    match tool {
+                        Tool::Select => {
+                            let p1 = c + Vec2::new(-4.0, -5.0);
+                            let p2 = c + Vec2::new(-4.0, 5.0);
+                            let p3 = c + Vec2::new(-1.0, 2.0);
+                            let p4 = c + Vec2::new(4.0, 5.0);
+                            let p5 = c + Vec2::new(5.0, 3.0);
+                            let p6 = c + Vec2::new(0.0, 0.0);
+                            let p7 = c + Vec2::new(4.0, -1.0);
+                            ui.painter().add(egui::Shape::convex_polygon(
+                                vec![p1, p2, p3, p4, p5, p6, p7],
+                                icon_color,
+                                Stroke::NONE,
+                            ));
+                        }
+                        Tool::Rectangle => {
+                            let r = Rect::from_center_size(c, Vec2::new(14.0, 10.0));
+                            ui.painter().rect_stroke(r, 2.0, Stroke::new(1.8, icon_color), egui::StrokeKind::Middle);
+                        }
+                        Tool::Ellipse => {
+                            ui.painter().circle_stroke(c, 6.0, Stroke::new(1.8, icon_color));
+                        }
+                        Tool::Arrow => {
+                            let start = c + Vec2::new(-5.0, 4.0);
+                            let end = c + Vec2::new(5.0, -4.0);
+                            ui.painter().line_segment([start, end], Stroke::new(2.0, icon_color));
+                            ui.painter().line_segment([end, end + Vec2::new(-5.0, 0.0)], Stroke::new(2.0, icon_color));
+                            ui.painter().line_segment([end, end + Vec2::new(0.0, 5.0)], Stroke::new(2.0, icon_color));
+                        }
+                        Tool::Pen => {
+                            let start = c + Vec2::new(-5.0, 5.0);
+                            let end = c + Vec2::new(5.0, -5.0);
+                            ui.painter().line_segment([start, end], Stroke::new(2.2, icon_color));
+                            ui.painter().circle_filled(start, 1.3, icon_color);
+                        }
+                        Tool::Text => {
+                            ui.painter().text(
+                                c,
+                                Align2::CENTER_CENTER,
+                                "T",
+                                FontId::new(14.0, FontFamily::Proportional),
+                                icon_color,
+                            );
+                        }
+                        Tool::Step => {
+                            ui.painter().circle_filled(c, 6.5, icon_color);
+                            let num_color = if is_active { Color32::from_rgb(0, 122, 255) } else { Color32::from_rgb(32, 32, 35) };
+                            ui.painter().text(c, Align2::CENTER_CENTER, "1", FontId::new(10.0, FontFamily::Proportional), num_color);
+                        }
+                        Tool::Mosaic => {
+                            let r = Rect::from_center_size(c, Vec2::new(12.0, 12.0));
+                            ui.painter().rect_stroke(r, 1.0, Stroke::new(1.0, icon_color), egui::StrokeKind::Middle);
+                            let h = r.width() / 2.0;
+                            ui.painter().rect_filled(Rect::from_min_size(r.min, Vec2::splat(h)), 0.0, icon_color);
+                            ui.painter().rect_filled(Rect::from_min_size(c, Vec2::splat(h)), 0.0, icon_color);
+                        }
+                        Tool::Highlighter => {
+                            let r = Rect::from_center_size(c, Vec2::new(14.0, 6.0));
+                            ui.painter().rect_filled(r, 1.5, icon_color.gamma_multiply(0.65));
+                            ui.painter().rect_stroke(r, 1.5, Stroke::new(1.0, icon_color), egui::StrokeKind::Middle);
+                        }
+                    }
+
+                    if resp.on_hover_text(tip).clicked() {
                         self.annotations.active_tool = tool;
                     }
                 }
@@ -462,13 +556,32 @@ impl eframe::App for OverlayApp {
 
                 ui.separator();
 
-                // Undo Button
-                if ui.button(egui::RichText::new("↩").size(14.0)).on_hover_text("Geri Al (Cmd+Z)").clicked() {
+                // Undo Button (↩)
+                let (u_rect, u_resp) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), egui::Sense::click());
+                if u_resp.hovered() {
+                    ui.painter().rect_filled(u_rect, 6.0, Color32::from_white_alpha(35));
+                }
+                let uc = u_rect.center();
+                let u_col = if u_resp.hovered() { Color32::WHITE } else { Color32::from_white_alpha(200) };
+                ui.painter().line_segment([uc + Vec2::new(4.0, 4.0), uc + Vec2::new(4.0, -2.0)], Stroke::new(1.8, u_col));
+                ui.painter().line_segment([uc + Vec2::new(4.0, -2.0), uc + Vec2::new(-4.0, -2.0)], Stroke::new(1.8, u_col));
+                ui.painter().line_segment([uc + Vec2::new(-4.0, -2.0), uc + Vec2::new(-1.0, -5.0)], Stroke::new(1.8, u_col));
+                ui.painter().line_segment([uc + Vec2::new(-4.0, -2.0), uc + Vec2::new(-1.0, 1.0)], Stroke::new(1.8, u_col));
+                if u_resp.on_hover_text("Geri Al (Cmd+Z)").clicked() {
                     self.annotations.undo();
                 }
 
-                // Clear Button
-                if ui.button(egui::RichText::new("🗑").size(14.0)).on_hover_text("Çizimleri Temizle").clicked() {
+                // Clear Button (🗑)
+                let (d_rect, d_resp) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), egui::Sense::click());
+                if d_resp.hovered() {
+                    ui.painter().rect_filled(d_rect, 6.0, Color32::from_white_alpha(35));
+                }
+                let dc = d_rect.center();
+                let d_col = if d_resp.hovered() { Color32::WHITE } else { Color32::from_white_alpha(200) };
+                let bin_rect = Rect::from_center_size(dc + Vec2::new(0.0, 2.0), Vec2::new(10.0, 10.0));
+                ui.painter().rect_stroke(bin_rect, 1.5, Stroke::new(1.5, d_col), egui::StrokeKind::Middle);
+                ui.painter().line_segment([dc + Vec2::new(-6.0, -3.5), dc + Vec2::new(6.0, -3.5)], Stroke::new(1.5, d_col));
+                if d_resp.on_hover_text("Çizimleri Temizle").clicked() {
                     self.annotations.clear();
                 }
 
@@ -513,7 +626,15 @@ impl eframe::App for OverlayApp {
                 }
 
                 // Cancel Button (✕)
-                if ui.button(egui::RichText::new("✕").size(13.0)).on_hover_text("İptal (Esc)").clicked() {
+                let (x_rect, x_resp) = ui.allocate_exact_size(Vec2::new(26.0, 26.0), egui::Sense::click());
+                if x_resp.hovered() {
+                    ui.painter().rect_filled(x_rect, 6.0, Color32::from_white_alpha(35));
+                }
+                let xc = x_rect.center();
+                let x_col = if x_resp.hovered() { Color32::WHITE } else { Color32::from_white_alpha(200) };
+                ui.painter().line_segment([xc + Vec2::new(-4.5, -4.5), xc + Vec2::new(4.5, 4.5)], Stroke::new(2.0, x_col));
+                ui.painter().line_segment([xc + Vec2::new(4.5, -4.5), xc + Vec2::new(-4.5, 4.5)], Stroke::new(2.0, x_col));
+                if x_resp.on_hover_text("İptal (Esc)").clicked() {
                     self.is_finished = true;
                 }
             });
@@ -622,20 +743,8 @@ impl eframe::App for OverlayApp {
                     // Check if it was just a tiny click (< 6px wide and tall)
                     if sel.width() < 6.0 && sel.height() < 6.0 {
                         // Check if a window was clicked
-                        let clicked_win = self.captured.windows.iter().find(|w| {
-                            let wx = w.x as f32 / scale_x;
-                            let wy = w.y as f32 / scale_y;
-                            let ww = w.width as f32 / scale_x;
-                            let wh = w.height as f32 / scale_y;
-                            let r = Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh));
-                            r.contains(mouse_pos)
-                        });
-                        if let Some(w) = clicked_win {
-                            let wx = (w.x as f32 / scale_x).clamp(0.0, screen_size.x);
-                            let wy = (w.y as f32 / scale_y).clamp(0.0, screen_size.y);
-                            let ww = (w.width as f32 / scale_x).min(screen_size.x - wx);
-                            let wh = (w.height as f32 / scale_y).min(screen_size.y - wy);
-                            self.selection = Some(Rect::from_min_size(Pos2::new(wx, wy), Vec2::new(ww, wh)));
+                        if let Some((win_rect, _)) = self.find_best_window_at(mouse_pos, scale_x, scale_y, screen_size) {
+                            self.selection = Some(win_rect);
                         } else {
                             // Clicking on empty area clears selection
                             self.selection = None;

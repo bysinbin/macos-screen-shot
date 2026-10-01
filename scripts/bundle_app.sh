@@ -82,8 +82,8 @@ cat << 'EOF' > "$CONTENTS_DIR/Info.plist"
 EOF
 
 # 4. Temizle ve Kod İmzalama
+find "$BUNDLE_DIR" -exec xattr -c {} + 2>/dev/null || true
 xattr -cr "$BUNDLE_DIR" 2>/dev/null || true
-xattr -c "$BUNDLE_DIR" 2>/dev/null || true
 dot_clean "$BUNDLE_DIR" 2>/dev/null || true
 if security find-certificate -c "ScreenShot Dev" >/dev/null 2>&1; then
     echo "🔏 'ScreenShot Dev' kalıcı geliştirici sertifikası ile imzalanıyor..."

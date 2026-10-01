@@ -20,7 +20,10 @@ use eframe::egui::{self, ViewportCommand};
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use objc2_app_kit::{NSApp, NSApplicationActivationPolicy, NSWindowCollectionBehavior};
+use objc2_app_kit::{
+    NSApp, NSApplicationActivationPolicy, NSNormalWindowLevel, NSScreenSaverWindowLevel,
+    NSWindowCollectionBehavior,
+};
 use objc2_foundation::MainThreadMarker;
 use std::env;
 use std::path::PathBuf;
@@ -138,7 +141,7 @@ impl MainApp {
 
                 self.state = AppState::Overlay(OverlayApp::new(captured));
 
-                // Ensure window joins current space (e.g. Fullscreen apps like Antigravity)
+                // Ensure window joins current space and sits above all UI (menu bar, dock)
                 if let Some(mtm) = MainThreadMarker::new() {
                     let app = NSApp(mtm);
                     for w in app.windows() {
@@ -147,6 +150,7 @@ impl MainApp {
                                 | NSWindowCollectionBehavior::FullScreenAuxiliary
                                 | NSWindowCollectionBehavior::Stationary,
                         );
+                        w.setLevel(NSScreenSaverWindowLevel);
                     }
                 }
 
@@ -328,6 +332,12 @@ impl eframe::App for MainApp {
 
                 if overlay.is_finished {
                     println!("✓ Overlay kapandı.");
+                    if let Some(mtm) = MainThreadMarker::new() {
+                        let app = NSApp(mtm);
+                        for w in app.windows() {
+                            w.setLevel(NSNormalWindowLevel);
+                        }
+                    }
                     if let Some(pin_img) = overlay.pin_requested.take() {
                         let scale = ctx.pixels_per_point().max(1.0);
                         let pw = (pin_img.width() as f32 / scale).clamp(200.0, 1400.0);
@@ -422,6 +432,30 @@ fn main() -> eframe::Result {
                     );
                 }
             }
+
+            // Load macOS system fonts so unicode symbols and emojis render cleanly
+            let mut fonts = egui::FontDefinitions::default();
+            for font_path in [
+                "/System/Library/Fonts/Apple Symbols.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            ] {
+                if let Ok(font_data) = std::fs::read(font_path) {
+                    let name = font_path.split('/').last().unwrap_or("SysFont").to_string();
+                    fonts.font_data.insert(
+                        name.clone(),
+                        std::sync::Arc::new(egui::FontData::from_owned(font_data)),
+                    );
+                    fonts.families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .push(name.clone());
+                    fonts.families
+                        .entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .push(name);
+                }
+            }
+            cc.egui_ctx.set_fonts(fonts);
 
             let config = AppConfig::load();
             let icon = create_camera_icon();
