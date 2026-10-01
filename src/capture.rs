@@ -37,50 +37,7 @@ pub fn request_screen_capture_permission() -> bool {
 }
 
 impl CapturedScreen {
-    pub fn capture_primary() -> Result<Self, String> {
-        let monitors = Monitor::all().map_err(|e| {
-            #[cfg(target_os = "macos")]
-            let _ = request_screen_capture_permission();
-            format!("Monitör listesi alınamadı: {e}")
-        })?;
-        if monitors.is_empty() {
-            return Err("Monitör bulunamadı".to_string());
-        }
-
-        // Find primary monitor, or fallback to the first one
-        let primary = monitors
-            .into_iter()
-            .find(|m| m.is_primary().unwrap_or(false))
-            .or_else(|| Monitor::all().ok()?.into_iter().next())
-            .ok_or_else(|| "Could not find a monitor to capture".to_string())?;
-
-        let monitor_name = primary.name().unwrap_or_else(|_| "Primary Display".to_string());
-        let image = primary
-            .capture_image()
-            .map_err(|e| {
-                #[cfg(target_os = "macos")]
-                let _ = request_screen_capture_permission();
-                format!("Ekran görüntüsü yakalanamadı: {e}")
-            })?;
-
-        let physical_width = image.width();
-        let physical_height = image.height();
-
-        // Safety check: is the captured screen pure black due to stale macOS TCC permission?
-        let mut has_visible_pixels = false;
-        for p in image.pixels().step_by(100) {
-            if p[0] > 15 || p[1] > 15 || p[2] > 15 {
-                has_visible_pixels = true;
-                break;
-            }
-        }
-        if !has_visible_pixels {
-            #[cfg(target_os = "macos")]
-            let _ = request_screen_capture_permission();
-            return Err("Ekran yakalandı ancak görüntü tamamen siyah. Lütfen macOS Sistem Ayarları > Gizlilik ve Güvenlik > Ekran Kaydı bölümünden ScreenShot iznini kapatıp tekrar açın.".to_string());
-        }
-
-        // Scan windows for smart window snapping
+    pub fn detect_windows() -> Vec<WindowInfo> {
         let mut detected_windows = Vec::new();
         if let Ok(windows) = Window::all() {
             for w in windows {
@@ -109,6 +66,73 @@ impl CapturedScreen {
                 });
             }
         }
+        detected_windows
+    }
+
+    pub fn capture_primary() -> Result<Self, String> {
+        // Method 1: Use macOS native screencapture utility.
+        // This is 100% reliable across Spaces, Fullscreen Apps (like Antigravity),
+        // and doesn't suffer from TCC ad-hoc window-redaction bugs.
+        #[cfg(target_os = "macos")]
+        {
+            let tmp_path = std::env::temp_dir().join(format!("scr_shot_{}.png", std::process::id()));
+            let output = std::process::Command::new("/usr/sbin/screencapture")
+                .arg("-x")
+                .arg(&tmp_path)
+                .output();
+
+            if let Ok(out) = output {
+                if out.status.success() && tmp_path.exists() {
+                    if let Ok(dyn_img) = image::open(&tmp_path) {
+                        let _ = std::fs::remove_file(&tmp_path);
+                        let rgba = dyn_img.to_rgba8();
+                        let pw = rgba.width();
+                        let ph = rgba.height();
+
+                        let detected_windows = Self::detect_windows();
+
+                        return Ok(Self {
+                            image: rgba,
+                            monitor_name: "Primary Display".to_string(),
+                            physical_width: pw,
+                            physical_height: ph,
+                            windows: detected_windows,
+                        });
+                    }
+                    let _ = std::fs::remove_file(&tmp_path);
+                }
+            }
+        }
+
+        // Method 2: Fallback to xcap
+        let monitors = Monitor::all().map_err(|e| {
+            #[cfg(target_os = "macos")]
+            let _ = request_screen_capture_permission();
+            format!("Monitör listesi alınamadı: {e}")
+        })?;
+        if monitors.is_empty() {
+            return Err("Monitör bulunamadı".to_string());
+        }
+
+        let primary = monitors
+            .into_iter()
+            .find(|m| m.is_primary().unwrap_or(false))
+            .or_else(|| Monitor::all().ok()?.into_iter().next())
+            .ok_or_else(|| "Could not find a monitor to capture".to_string())?;
+
+        let monitor_name = primary.name().unwrap_or_else(|_| "Primary Display".to_string());
+        let image = primary
+            .capture_image()
+            .map_err(|e| {
+                #[cfg(target_os = "macos")]
+                let _ = request_screen_capture_permission();
+                format!("Ekran görüntüsü yakalanamadı: {e}")
+            })?;
+
+        let physical_width = image.width();
+        let physical_height = image.height();
+
+        let detected_windows = Self::detect_windows();
 
         Ok(Self {
             image,

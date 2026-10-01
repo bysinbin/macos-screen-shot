@@ -10,13 +10,13 @@ cargo build --release --bin macos_screenshot
 cargo run --release --bin generate_icon
 
 APP_NAME="ScreenShot"
-BUNDLE_DIR="$APP_NAME.app"
+BUNDLE_DIR="target/$APP_NAME.app"
 CONTENTS_DIR="$BUNDLE_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 echo "📦 .app paket yapısı hazırlanıyor ($BUNDLE_DIR)..."
-rm -rf "$BUNDLE_DIR"
+rm -rf "$BUNDLE_DIR" "$APP_NAME.app"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
@@ -80,8 +80,8 @@ cat << 'EOF' > "$CONTENTS_DIR/Info.plist"
 EOF
 
 # 4. Temizle ve Kod İmzalama
+xattr -cr "$BUNDLE_DIR" 2>/dev/null || true
 dot_clean "$BUNDLE_DIR" 2>/dev/null || true
-xattr -rc "$BUNDLE_DIR" 2>/dev/null || true
 if security find-certificate -c "ScreenShot Dev" >/dev/null 2>&1; then
     echo "🔏 'ScreenShot Dev' kalıcı geliştirici sertifikası ile imzalanıyor..."
     codesign --force --deep --sign "ScreenShot Dev" "$BUNDLE_DIR"
@@ -90,5 +90,7 @@ else
     codesign --force --deep --sign - "$BUNDLE_DIR"
 fi
 
+cp -R "$BUNDLE_DIR" "$APP_NAME.app"
+
 echo "🎉 Tebrikler! $APP_NAME.app paketi başarıyla oluşturuldu:"
-echo "   -> $DIR/$BUNDLE_DIR"
+echo "   -> $DIR/$APP_NAME.app"

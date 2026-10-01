@@ -20,7 +20,7 @@ use eframe::egui::{self, ViewportCommand};
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use objc2_app_kit::{NSApp, NSApplicationActivationPolicy};
+use objc2_app_kit::{NSApp, NSApplicationActivationPolicy, NSWindowCollectionBehavior};
 use objc2_foundation::MainThreadMarker;
 use std::env;
 use std::path::PathBuf;
@@ -80,6 +80,7 @@ fn build_tray_menu(config: &AppConfig) -> Menu {
 struct MainApp {
     config: AppConfig,
     tray: TrayIcon,
+    _menu: Menu,
     hotkey_manager: GlobalHotKeyManager,
     area_hotkey: HotKey,
     fs_hotkey: HotKey,
@@ -106,24 +107,21 @@ impl MainApp {
         let _ = self.hotkey_manager.register(self.fs_hotkey);
         let _ = self.hotkey_manager.register(self.pin_hotkey);
 
-        self.tray.set_menu(Some(Box::new(build_tray_menu(&self.config))));
+        let new_menu = build_tray_menu(&self.config);
+        self.tray.set_menu(Some(Box::new(new_menu.clone())));
+        self._menu = new_menu;
         println!("✓ Hotkeys and tray menu updated from config!");
     }
 
     fn trigger_area_capture(&mut self, ctx: &egui::Context, from_menu: bool) {
-        // Ensure any previous window is completely ordered out before capture
-        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-        if let Some(mtm) = MainThreadMarker::new() {
-            let app = NSApp(mtm);
-            for w in app.windows() {
-                w.orderOut(None);
-            }
-        }
+        // Move our 1x1 window way offscreen before capture so it's not captured
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
 
         if from_menu {
             std::thread::sleep(Duration::from_millis(150));
         } else {
-            std::thread::sleep(Duration::from_millis(60));
+            std::thread::sleep(Duration::from_millis(40));
         }
 
         println!("📸 Ekran alıntısı başlatılıyor...");
@@ -142,6 +140,18 @@ impl MainApp {
 
                 activate_app();
 
+                // Ensure window joins current space (e.g. Fullscreen apps like Antigravity)
+                if let Some(mtm) = MainThreadMarker::new() {
+                    let app = NSApp(mtm);
+                    for w in app.windows() {
+                        w.setCollectionBehavior(
+                            NSWindowCollectionBehavior::CanJoinAllSpaces
+                                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                                | NSWindowCollectionBehavior::Stationary,
+                        );
+                    }
+                }
+
                 ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
@@ -152,7 +162,8 @@ impl MainApp {
             Err(e) => {
                 eprintln!("❌ Ekran yakalama hatası: {e}");
                 self.state = AppState::Idle;
-                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
 
                 let msg = e.replace('"', "\\\"");
                 let script = format!(
@@ -299,7 +310,8 @@ impl eframe::App for MainApp {
             if !self.should_quit {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 self.state = AppState::Idle;
-                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
             }
         }
@@ -307,8 +319,9 @@ impl eframe::App for MainApp {
         // 3. Render state
         match &mut self.state {
             AppState::Idle => {
-                // Window is invisible
-                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                // Keep window offscreen and tiny, but keep event loop awake!
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
             }
             AppState::Overlay(overlay) => {
                 overlay.ui(ui, frame);
@@ -327,7 +340,8 @@ impl eframe::App for MainApp {
                         ctx.send_viewport_cmd(ViewportCommand::Focus);
                     } else {
                         self.state = AppState::Idle;
-                        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
                     }
                 }
             }
@@ -341,7 +355,8 @@ impl eframe::App for MainApp {
                         }
                     }
                     self.state = AppState::Idle;
-                    ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
                 }
             }
             AppState::Pin(pin) => {
@@ -349,7 +364,8 @@ impl eframe::App for MainApp {
 
                 if pin.is_closed {
                     self.state = AppState::Idle;
-                    ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(1.0, 1.0)));
                 }
             }
         }
@@ -364,7 +380,7 @@ fn main() -> eframe::Result {
 
     let start_mode_capture = args.len() >= 2 && args[1] == "--capture";
     let start_mode_settings = args.len() >= 2 && args[1] == "--settings";
-    let is_cli_start = start_mode_capture || start_mode_settings;
+    let _is_cli_start = start_mode_capture || start_mode_settings;
 
     let (init_w, init_h) = if let Ok(monitors) = xcap::Monitor::all() {
         if let Some(m) = monitors.first() {
@@ -380,9 +396,11 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_visible(is_cli_start)
+            .with_visible(true)
             .with_decorations(start_mode_settings)
+            .with_has_shadow(!start_mode_settings)
             .with_inner_size(if start_mode_settings { [560.0, 520.0] } else if start_mode_capture { [init_w, init_h] } else { [1.0, 1.0] })
+            .with_position(if start_mode_settings { [200.0, 200.0] } else if start_mode_capture { [0.0, 0.0] } else { [-10000.0, -10000.0] })
             .with_transparent(true)
             .with_title("ScreenShot"),
         ..Default::default()
@@ -396,10 +414,12 @@ fn main() -> eframe::Result {
                 let app = NSApp(mtm);
                 let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
                 app.finishLaunching();
-                if !is_cli_start {
-                    for window in app.windows() {
-                        window.orderOut(None);
-                    }
+                for window in app.windows() {
+                    window.setCollectionBehavior(
+                        NSWindowCollectionBehavior::CanJoinAllSpaces
+                            | NSWindowCollectionBehavior::FullScreenAuxiliary
+                            | NSWindowCollectionBehavior::Stationary,
+                    );
                 }
             }
 
@@ -429,7 +449,7 @@ fn main() -> eframe::Result {
             let menu = build_tray_menu(&config);
 
             let tray = TrayIconBuilder::new()
-                .with_menu(Box::new(menu))
+                .with_menu(Box::new(menu.clone()))
                 .with_tooltip("ScreenShot")
                 .with_icon(icon)
                 .build()
@@ -498,6 +518,7 @@ fn main() -> eframe::Result {
             Ok(Box::new(MainApp {
                 config,
                 tray,
+                _menu: menu,
                 hotkey_manager: hotkeys,
                 area_hotkey,
                 fs_hotkey,

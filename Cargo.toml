@@ -15,7 +15,7 @@ image = "0.25.10"
 imageproc = { version = "0.27.0", default-features = false }
 muda = "0.21.0"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSEvent"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSEvent", "NSWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSDate", "NSRunLoop"] }
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
